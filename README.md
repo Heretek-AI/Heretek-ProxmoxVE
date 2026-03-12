@@ -7,7 +7,7 @@
 
   <p>
     <a href="https://github.com/Heretek-AI/ProxmoxVE">
-      <img src="https://img.shields.io/badge/🔧_Repository-Heretek_Forge-9b59b6?style=for-the-badge&labelColor=2d3748" alt="Repository" />
+      <img src="https://img.shields.io/badge/🔧_Main_Repository-Heretek_Forge-9b59b6?style=for-the-badge&labelColor=2d3748" alt="Main Repository" />
     </a>
     <a href="https://github.com/community-scripts/ProxmoxVE">
       <img src="https://img.shields.io/badge/🏛️_Orthodox-Upstream-4c9b3f?style=for-the-badge&labelColor=2d3748" alt="Upstream" />
@@ -37,6 +37,19 @@
 </div>
 
 <br />
+
+---
+
+## 📌 About This Repository
+
+> **This is a standalone mirror of [Heretek-AI/ProxmoxVE](https://github.com/Heretek-AI/ProxmoxVE)**
+
+All development and changes happen on the main **[ProxmoxVE](https://github.com/Heretek-AI/ProxmoxVE)** repository and are automatically synced here. This repository serves as a standalone copy for those who want to reference or clone the Heretek scripts independently.
+
+| Repository | Purpose |
+|------------|---------|
+| **[Heretek-AI/ProxmoxVE](https://github.com/Heretek-AI/ProxmoxVE)** | Main development repository where all changes are made |
+| **[Heretek-AI/Heretek-ProxmoxVE](https://github.com/Heretek-AI/Heretek-ProxmoxVE)** | Standalone mirror (this repo) - synced from ProxmoxVE |
 
 ---
 
