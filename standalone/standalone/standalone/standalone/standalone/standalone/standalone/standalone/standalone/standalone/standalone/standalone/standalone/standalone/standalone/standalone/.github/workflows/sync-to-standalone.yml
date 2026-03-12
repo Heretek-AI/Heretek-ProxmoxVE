@@ -1,0 +1,57 @@
+name: Sync to Standalone Repository
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout standalone repository
+        uses: actions/checkout@v4
+        with:
+          repository: Heretek-AI/Heretek-ProxmoxVE
+          token: ${{ secrets.PAT_STANDALONE }}
+          path: standalone
+          fetch-depth: 0
+
+      - name: Sync entire codebase (excluding README.md)
+        run: |
+          # Sync all files except README.md using rsync
+          # --delete removes files in target that don't exist in source
+          # --exclude patterns prevent syncing .git and README.md
+          rsync -av --delete \
+            --exclude='.git/' \
+            --exclude='README.md' \
+            ./ standalone/
+          
+          echo "Sync complete!"
+          echo "Files synced:"
+          ls -la standalone/
+
+      - name: Commit and push to standalone
+        run: |
+          cd standalone
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Check if there are any changes (including untracked files)
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No changes to commit"
+          else
+            git add -A
+            git commit -m "Sync from Heretek-AI/ProxmoxVE - $(date +%Y-%m-%d)"
+            git push
+            echo "Changes pushed to standalone repository"
+          fi
