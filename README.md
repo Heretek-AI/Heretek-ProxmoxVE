@@ -91,17 +91,45 @@ These scripts are exclusive to this forge, focusing on AI/ML workloads and speci
 
 | Script | Description | Resources |
 |--------|-------------|-----------|
-| **[MCPHub](https://github.com/samanhappy/mcphub)** | Model Context Protocol Hub for AI tooling integration | 2 CPU / 2GB RAM |
-| **[Hermes](https://github.com/NousResearch/hermes-agent)** | Nous Research Hermes AI Agent | 8 CPU / 16GB RAM |
-| **[Lemonade](https://lemonade-server.ai)** | Local AI inference server with GPU support | 2 CPU / 4GB RAM + GPU |
-| **[SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI)** | Stable Diffusion Swarm interface | 8 CPU / 16GB RAM + GPU |
+| **[Hermes](https://hermes-agent.nousresearch.com/)** | Self-improving AI agent with built-in learning loop. Creates skills from experience and builds user preference models across sessions | 8 CPU / 16GB RAM |
+| **[Lemonade](https://lemonade-server.ai/)** | Lightweight LLM inference server with OpenAI-compatible APIs. Supports CPU, Vulkan, and ROCm backends | 2 CPU / 4GB RAM |
+| **[llama.cpp Server](https://github.com/ggml-org/llama.cpp)** | High-performance LLM inference server with OpenAI-compatible API using Vulkan backend for GPU acceleration | 4 CPU / 8GB RAM + GPU |
+| **[MCPHub](https://github.com/samanhappy/mcphub)** | Unified hub for centrally managing and routing multiple MCP servers through a single dashboard and API | 2 CPU / 2GB RAM |
+| **[OpenClaw](https://openclaw.ai)** | Personal AI assistant supporting WhatsApp, Telegram, Slack, Discord, Signal, iMessage, IRC, Teams, Matrix and more | 2 CPU / 4GB RAM |
+| **[SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI)** | Powerful Stable Diffusion WebUI with built-in ComfyUI integration for AI image generation | 8 CPU / 16GB RAM + GPU |
 
-### Media & Gaming
+### Proxmox & Virtualization
 
 | Script | Description | Resources |
 |--------|-------------|-----------|
-| **[Agregarr](https://github.com/agregarr/agregarr)** | Media aggregation and streaming | 2 CPU / 4GB RAM |
-| **[Drop](https://github.com/Drop-OSS/drop)** | Gaming and media server | 2 CPU / 4GB RAM |
+| **[PegaProx](https://pegaprox.com/)** | Web-based management interface for Proxmox VE and XCP-ng clusters with live monitoring, VM management, and cross-cluster migrations | 2 CPU / 2GB RAM |
+| **[Olares](https://olares.com/)** | Open-source personal cloud OS for self-hosting AI models, applications, and data with enterprise-grade security (VM) | 4 CPU / 8GB RAM / 160GB SSD |
+| **[OSX-Proxmox-Next](https://github.com/lucid-fabrics/osx-proxmox-next)** | Automated macOS VM creation for Proxmox VE. Supports Ventura 13, Sonoma 14, Sequoia 15, and Tahoe 26 (Tool) | Varies |
+
+### Media & Streaming
+
+| Script | Description | Resources |
+|--------|-------------|-----------|
+| **[Agregarr](https://github.com/agregarr/agregarr)** | Keeps Plex Home and Recommended fresh with Collections from Trakt, IMDb, TMDB, Letterboxd, MDBList, FlixPatrol, AniList and MyAnimeList | 2 CPU / 4GB RAM |
+| **[Maintainerr](https://github.com/Maintainerr/Maintainerr)** | Automatically manage media collections in Plex, Jellyfin, and Emby by syncing with Radarr and Sonarr | 2 CPU / 4GB RAM |
+
+### Gaming & Leisure
+
+| Script | Description | Resources |
+|--------|-------------|-----------|
+| **[Drop](https://github.com/Drop-OSS/drop)** | Open-source game distribution platform similar to Steam/GameVault. Manage game library, track playtime, and organize collections | 2 CPU / 4GB RAM |
+
+### Developer Tools
+
+| Script | Description | Resources |
+|--------|-------------|-----------|
+| **[Wakapi](https://wakapi.dev)** | Minimalist, self-hosted WakaTime-compatible backend for coding statistics. Track coding time across projects, languages, and editors | 2 CPU / 2GB RAM |
+
+### Addons
+
+| Script | Description | Requirements |
+|--------|-------------|--------------|
+| **[AMD ROCm](https://rocm.docs.amd.com/)** | AMD GPU programming stack for high-performance computing and machine learning. Execute within existing LXC | GPU passthrough required |
 
 > ⚠️ **Note:** Heretek scripts may require more resources or additional configuration. Check individual script documentation for requirements.
 
