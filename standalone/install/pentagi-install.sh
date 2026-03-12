@@ -76,6 +76,8 @@ sed -i "s/^INSTALLATION_ID=.*/INSTALLATION_ID=${INSTALLATION_ID}/" /opt/pentagi/
 LOCAL_IP=$(hostname -I | awk '{print $1}')
 sed -i "s|^PUBLIC_URL=.*|PUBLIC_URL=https://${LOCAL_IP}:8443|" /opt/pentagi/.env
 sed -i "s|^CORS_ORIGINS=.*|CORS_ORIGINS=https://${LOCAL_IP}:8443,https://localhost:8443|" /opt/pentagi/.env
+# Listen on all interfaces for external access
+sed -i "s|^PENTAGI_LISTEN_IP=.*|PENTAGI_LISTEN_IP=0.0.0.0|" /opt/pentagi/.env
 
 # Set scraper credentials
 SCRAPER_USER="pentagi"
@@ -134,13 +136,19 @@ TimeoutStopSec=120
 [Install]
 WantedBy=multi-user.target
 EOF
-systemctl enable -q pentagi
 msg_ok "Created Systemd Service"
 
 msg_info "Pulling Docker Images"
 cd /opt/pentagi || exit
 $STD docker compose pull
 msg_ok "Pulled Docker Images"
+
+msg_info "Starting PentAGI Service"
+systemctl daemon-reload
+systemctl enable -q pentagi
+systemctl start pentagi
+msg_ok "Started PentAGI Service"
+
 
 # Store credentials for user reference
 cat <<EOF >/opt/pentagi/CREDENTIALS.txt
