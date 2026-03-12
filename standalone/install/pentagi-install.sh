@@ -60,13 +60,20 @@ INSTALLATION_ID=$(cat /proc/sys/kernel/random/uuid)
 # Create .env file from template
 cp /opt/pentagi/.env.example /opt/pentagi/.env
 
+# Strip inline comments (Go env parser doesn't handle them)
+# Remove everything after # on lines that have = (but keep the value)
+sed -i 's/=\([^#]*\)#.*/=\1/' /opt/pentagi/.env
+# Trim trailing whitespace from values
+sed -i 's/ *= */=/' /opt/pentagi/.env
+sed -i 's/ *$//' /opt/pentagi/.env
+
 # Set secure defaults
 sed -i "s/^PENTAGI_POSTGRES_PASSWORD=.*/PENTAGI_POSTGRES_PASSWORD=${POSTGRES_PASSWORD}/" /opt/pentagi/.env
 sed -i "s/^COOKIE_SIGNING_SALT=.*/COOKIE_SIGNING_SALT=${COOKIE_SALT}/" /opt/pentagi/.env
 sed -i "s/^INSTALLATION_ID=.*/INSTALLATION_ID=${INSTALLATION_ID}/" /opt/pentagi/.env
 
 # Set public URL to container IP
-import_local_ip
+LOCAL_IP=$(hostname -I | awk '{print $1}')
 sed -i "s|^PUBLIC_URL=.*|PUBLIC_URL=https://${LOCAL_IP}:8443|" /opt/pentagi/.env
 sed -i "s|^CORS_ORIGINS=.*|CORS_ORIGINS=https://${LOCAL_IP}:8443,https://localhost:8443|" /opt/pentagi/.env
 
