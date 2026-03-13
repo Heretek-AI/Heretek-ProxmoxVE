@@ -168,6 +168,12 @@ function create_kali_container() {
   export TEMPLATE="${KALI_TEMPLATE}"
   export TEMPLATE_SOURCE="local"
   
+  # Required variables normally set in build_container
+  # CTID and PCT_OSTYPE are required by create_lxc_container
+  export CTID="${CT_ID}"
+  export PCT_OSTYPE="${var_os}"
+  export PCT_OSVERSION="${var_version}"
+  
   # Now call the original create_lxc_container
   create_lxc_container
 }
