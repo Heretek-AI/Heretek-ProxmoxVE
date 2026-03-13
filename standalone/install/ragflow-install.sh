@@ -323,20 +323,29 @@ environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
 UVENV
 fi
 
-# Fix: Resolve PyJWT dependency conflict between zhipuai and mcp
-# zhipuai==2.0.1 requires pyjwt>=2.8.0,<2.9.dev0
-# mcp>=1.23.0 requires pyjwt[crypto]>=2.10.1
-# These constraints are mutually exclusive, so we override PyJWT to satisfy mcp
+# Fix: Resolve dependency conflicts between various packages
+# 1. PyJWT: zhipuai==2.0.1 requires pyjwt>=2.8.0,<2.9.dev0
+#           mcp>=1.23.0 requires pyjwt[crypto]>=2.10.1
+# 2. pyopenssl: crawl4ai>=0.8.0 requires pyopenssl>=25.3.0
+#               pyopenssl>=25.3.0 requires cryptography>=45.0.7
+#               alibabacloud-tea-openapi requires cryptography<45.0.0
+# Solution: Override both packages to compatible versions
 # Reference: https://github.com/infiniflow/ragflow/issues/4499
-if ! grep -q 'tool.uv.override-dependencies' pyproject.toml 2>/dev/null; then
-  msg_info "Adding dependency overrides for PyJWT conflict resolution"
-  cat >> pyproject.toml << 'OVERRIDE'
+if ! grep -q 'override-dependencies' pyproject.toml 2>/dev/null; then
+  msg_info "Adding dependency overrides for conflict resolution"
+  # Note: override-dependencies must be an array, not a table
+  # Format: override-dependencies = ["package>=version", "package<version"]
+  if grep -q '^\[tool\.uv\]' pyproject.toml 2>/dev/null; then
+    # Append to existing [tool.uv] section
+    sed -i '/^\[tool\.uv\]/a override-dependencies = ["pyjwt>=2.10.1", "pyopenssl<25.0.0"]' pyproject.toml
+  else
+    # Create new [tool.uv] section with override-dependencies as array
+    cat >> pyproject.toml << 'OVERRIDE'
 
-[tool.uv.override-dependencies]
-# Force PyJWT version that satisfies mcp's requirement (>=2.10.1)
-# zhipuai's constraint (<2.9.dev0) is overly restrictive and works with newer PyJWT
-pyjwt = ">=2.10.1"
+[tool.uv]
+override-dependencies = ["pyjwt>=2.10.1", "pyopenssl<25.0.0"]
 OVERRIDE
+  fi
   msg_ok "Added dependency overrides"
 fi
 

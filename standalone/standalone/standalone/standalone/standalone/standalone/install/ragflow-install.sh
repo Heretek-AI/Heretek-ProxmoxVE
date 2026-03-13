@@ -313,6 +313,17 @@ else
   sed -i '/^\[project\]/a requires-python = ">=3.10,<3.13"' pyproject.toml
 fi
 
+# Add uv environments configuration to limit to Linux x86_64 only
+# This avoids dependency resolution conflicts on macOS/Darwin and ARM64
+# where some packages (zhipuai, mcp) have conflicting PyJWT requirements
+if ! grep -q 'tool.uv.environments' pyproject.toml 2>/dev/null; then
+  cat >> pyproject.toml << 'UVENV'
+
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+UVENV
+fi
+
 # Install Python dependencies
 msg_info "Installing Python Dependencies"
 cd /opt/ragflow || exit
