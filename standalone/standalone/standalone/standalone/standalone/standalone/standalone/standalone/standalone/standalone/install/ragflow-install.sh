@@ -131,20 +131,17 @@ systemctl restart mariadb
 msg_ok "MariaDB Configured"
 
 # ==============================================================================
-# REDIS/VALKEY INSTALLATION
+# REDIS INSTALLATION
 # ==============================================================================
+# Using Redis from Debian repos instead of Valkey to avoid external repo issues
 
-msg_info "Installing Valkey (Redis-compatible)"
+msg_info "Installing Redis"
 REDIS_PASS=$(openssl rand -base64 18 | tr -dc 'a-zA-Z0-9' | head -c16)
 
-# Add Valkey repository
-curl -fsSL https://packages.valkey.io/pubkey.gpg | gpg --dearmor -o /usr/share/keyrings/valkey.gpg
-echo "deb [signed-by=/usr/share/keyrings/valkey.gpg] https://packages.valkey.io/valkey/debian $(lsb_release -cs) main" >/etc/apt/sources.list.d/valkey.list
-$STD apt-get update
-$STD apt-get install -y valkey
+$STD apt-get install -y redis-server
 
-# Configure Valkey
-cat <<EOF >/etc/valkey/valkey.conf
+# Configure Redis
+cat <<EOF >/etc/redis/redis.conf
 bind 127.0.0.1
 port 6379
 requirepass ${REDIS_PASS}
@@ -152,15 +149,15 @@ maxmemory 2gb
 maxmemory-policy allkeys-lru
 daemonize no
 supervised systemd
-logfile /var/log/valkey/valkey.log
-dir /var/lib/valkey
+logfile /var/log/redis/redis-server.log
+dir /var/lib/redis
 EOF
 
-mkdir -p /var/log/valkey /var/lib/valkey
-chown -R valkey:valkey /var/log/valkey /var/lib/valkey
+mkdir -p /var/log/redis
+chown -R redis:redis /var/log/redis /var/lib/redis
 
-systemctl enable -q --now valkey
-msg_ok "Valkey Installed"
+systemctl enable -q --now redis-server
+msg_ok "Redis Installed"
 
 # ==============================================================================
 # ELASTICSEARCH INSTALLATION
@@ -299,12 +296,23 @@ cd /opt/ragflow || exit
 git describe --tags --abbrev=0 > /opt/ragflow/version.txt 2>/dev/null || echo "v0.24.0" > /opt/ragflow/version.txt
 msg_ok "Cloned RAGFlow Repository"
 
+# Fix: Replace gitee.com graspologic dependency with GitHub version
+# RAGFlow's pyproject.toml references a gitee.com fork that requires authentication
+# We replace it with the GitHub mirror which is publicly accessible
+if grep -q "gitee.com/infiniflow/graspologic" pyproject.toml 2>/dev/null; then
+  msg_info "Replacing gitee.com graspologic dependency with GitHub version"
+  sed -i 's|gitee.com/infiniflow/graspologic|github.com/infiniflow/graspologic|g' pyproject.toml
+  msg_ok "Fixed graspologic dependency"
+fi
+
 # Install Python dependencies
 msg_info "Installing Python Dependencies"
 cd /opt/ragflow || exit
 export UV_SYSTEM_PYTHON=1
-$STD /root/.local/bin/uv sync --python 3.12
-$STD /root/.local/bin/uv run download_deps.py
+# Use --index-strategy unsafe-best-match to handle multiple PyPI indexes
+# and avoid dependency resolution issues with mirrors
+$STD /usr/local/bin/uv sync --python 3.12 --index-strategy unsafe-best-match
+$STD /usr/local/bin/uv run --index-strategy unsafe-best-match download_deps.py
 msg_ok "Installed Python Dependencies"
 
 # ==============================================================================
@@ -398,8 +406,8 @@ msg_info "Creating Systemd Services"
 cat <<EOF >/etc/systemd/system/ragflow-server.service
 [Unit]
 Description=RAGFlow Backend Server
-After=network.target mariadb.service elasticsearch.service valkey.service minio.service
-Requires=mariadb.service elasticsearch.service valkey.service minio.service
+After=network.target mariadb.service elasticsearch.service redis-server.service minio.service
+Requires=mariadb.service elasticsearch.service redis-server.service minio.service
 
 [Service]
 Type=simple
@@ -409,7 +417,7 @@ Environment=PYTHONPATH=/opt/ragflow
 Environment=LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/
 Environment=NLTK_DATA=/opt/ragflow/nltk_data
 ExecStartPre=/bin/sleep 10
-ExecStart=/root/.local/bin/uv run python api/ragflow_server.py
+ExecStart=/usr/local/bin/uv run --index-strategy unsafe-best-match python api/ragflow_server.py
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=300
@@ -423,8 +431,8 @@ EOF
 cat <<EOF >/etc/systemd/system/ragflow-task-executor.service
 [Unit]
 Description=RAGFlow Task Executor
-After=network.target mariadb.service elasticsearch.service valkey.service minio.service ragflow-server.service
-Requires=mariadb.service elasticsearch.service valkey.service minio.service
+After=network.target mariadb.service elasticsearch.service redis-server.service minio.service ragflow-server.service
+Requires=mariadb.service elasticsearch.service redis-server.service minio.service
 
 [Service]
 Type=simple
@@ -433,7 +441,7 @@ WorkingDirectory=/opt/ragflow
 Environment=PYTHONPATH=/opt/ragflow
 Environment=LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/
 Environment=NLTK_DATA=/opt/ragflow/nltk_data
-ExecStart=/root/.local/bin/uv run python rag/svr/task_executor.py 0
+ExecStart=/usr/local/bin/uv run --index-strategy unsafe-best-match python rag/svr/task_executor.py 0
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=300
@@ -467,7 +475,7 @@ if command -v docker &>/dev/null; then
 else
   # Fallback: clone and build frontend
   NODE_VERSION="22" setup_nodejs
-  cd /opt/ragflow/web
+  cd /opt/ragflow/web || exit
   $STD npm install || exit
   $STD npm run build
   cp -r /opt/ragflow/web/dist/* /var/www/ragflow/
