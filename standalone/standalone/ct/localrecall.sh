@@ -38,9 +38,19 @@ function update_script() {
     cp -r /opt/localrecall/data /opt/localrecall_data_backup 2>/dev/null || true
     msg_ok "Backed up Data"
 
-    CLEAN_INSTALL=1 fetch_and_deploy_gh_release "localrecall" "mudler/LocalRecall" "singlefile" "latest" "/usr/local/bin" "localrecall-linux-*"
+    msg_info "Updating LocalRecall"
+    GO_VERSION="1.24" setup_go
+    fetch_and_deploy_gh_release "localrecall" "mudler/LocalRecall" "tarball" "latest" "/opt/localrecall"
+    cd /opt/localrecall || exit
+    $STD go build -o localrecall .
+    mv localrecall /usr/local/bin/localrecall
+    cd / || exit
+    rm -rf /opt/localrecall
+    msg_ok "Updated LocalRecall"
 
     msg_info "Restoring Data"
+    mkdir -p /opt/localrecall/data
+    mkdir -p /opt/localrecall/assets
     cp -r /opt/localrecall_data_backup/. /opt/localrecall/data 2>/dev/null || true
     rm -rf /opt/localrecall_data_backup
     msg_ok "Restored Data"
