@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/build.func)
-# Copyright (c) 2021-2026 community-scripts ORG
+COMMUNITY_SCRIPTS_URL="${COMMUNITY_SCRIPTS_URL:-https://raw.githubusercontent.com/Heretek-AI/ProxmoxVE/refs/heads/main}"
+source <(curl -fsSL "${COMMUNITY_SCRIPTS_URL}"/misc/build.func)
 # Author: BillyOutlast
-# License: MIT | https://github.com/community-scripts/ProxmoxVE/raw/main/LICENSE
+# License: MIT | https://github.com/Heretek-AI/ProxmoxVE/raw/main/LICENSE
 # Source: https://github.com/mudler/LocalAI
 
 APP="localai"
@@ -35,7 +35,7 @@ function update_script() {
     systemctl stop localai
     msg_ok "Stopped Service"
 
-    fetch_and_deploy_gh_release "localai" "mudler/LocalAI" "prebuild" "local-ai"
+    fetch_and_deploy_gh_release "localai" "mudler/LocalAI" "singlefile" "latest" "/usr/local/bin" "local-ai-Linux-*"
 
     msg_info "Starting Service"
     systemctl start localai
