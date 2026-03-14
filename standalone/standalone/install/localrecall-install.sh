@@ -16,7 +16,17 @@ msg_info "Installing Dependencies"
 $STD apt-get install -y curl ca-certificates
 msg_ok "Installed Dependencies"
 
-fetch_and_deploy_gh_release "localrecall" "mudler/LocalRecall" "singlefile" "latest" "/usr/local/bin" "localrecall-linux-*"
+GO_VERSION="1.24" setup_go
+
+fetch_and_deploy_gh_release "localrecall" "mudler/LocalRecall" "tarball" "latest" "/opt/localrecall"
+
+msg_info "Building LocalRecall"
+cd /opt/localrecall || exit
+$STD go build -o localrecall .
+mv localrecall /usr/local/bin/localrecall
+cd / || exit
+rm -rf /opt/localrecall
+msg_ok "Built LocalRecall"
 
 msg_info "Setting Up Application"
 mkdir -p /opt/localrecall/data
