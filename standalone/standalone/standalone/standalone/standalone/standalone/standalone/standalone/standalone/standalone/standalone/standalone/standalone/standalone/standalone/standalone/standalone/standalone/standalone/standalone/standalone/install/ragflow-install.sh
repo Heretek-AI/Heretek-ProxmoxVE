@@ -305,6 +305,25 @@ if grep -q "gitee.com/infiniflow/graspologic" pyproject.toml 2>/dev/null; then
   msg_ok "Fixed graspologic dependency"
 fi
 
+# Fix: Limit Python version to avoid dependency resolution for future Python versions
+# RAGFlow's dependencies have conflicts when resolving for Python 3.14+
+if grep -q 'requires-python' pyproject.toml 2>/dev/null; then
+  sed -i 's/requires-python.*/requires-python = ">=3.10,<3.13"/' pyproject.toml
+else
+  sed -i '/^\[project\]/a requires-python = ">=3.10,<3.13"' pyproject.toml
+fi
+
+# Add uv environments configuration to limit to Linux x86_64 only
+# This avoids dependency resolution conflicts on macOS/Darwin and ARM64
+# where some packages (zhipuai, mcp) have conflicting PyJWT requirements
+if ! grep -q 'tool.uv.environments' pyproject.toml 2>/dev/null; then
+  cat >> pyproject.toml << 'UVENV'
+
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+UVENV
+fi
+
 # Install Python dependencies
 msg_info "Installing Python Dependencies"
 cd /opt/ragflow || exit
