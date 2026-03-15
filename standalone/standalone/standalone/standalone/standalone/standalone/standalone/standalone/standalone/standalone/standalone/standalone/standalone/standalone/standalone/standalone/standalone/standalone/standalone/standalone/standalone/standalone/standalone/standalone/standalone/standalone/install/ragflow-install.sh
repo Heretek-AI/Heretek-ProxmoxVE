@@ -311,15 +311,17 @@ if grep -q "gitee.com/infiniflow/graspologic" uv.lock 2>/dev/null; then
 fi
 
 # Fix: Replace Chinese PyPI mirror with standard PyPI
+# https://github.com/astral-sh/uv/issues/10462
+# uv records index url into uv.lock but doesn't failover among multiple indexes
 # RAGFlow uses pypi.tuna.tsinghua.edu.cn which may not have all packages
 if grep -q "pypi.tuna.tsinghua.edu.cn" pyproject.toml 2>/dev/null; then
   msg_info "Replacing Chinese PyPI mirror with standard PyPI"
-  sed -i 's|pypi.tuna.tsinghua.edu.cn/simple|pypi.org/simple|g' pyproject.toml
+  sed -i 's|pypi.tuna.tsinghua.edu.cn|pypi.org|g' pyproject.toml
   msg_ok "Fixed PyPI index URL in pyproject.toml"
 fi
 if grep -q "pypi.tuna.tsinghua.edu.cn" uv.lock 2>/dev/null; then
   msg_info "Replacing Chinese PyPI mirror in uv.lock with standard PyPI"
-  sed -i 's|pypi.tuna.tsinghua.edu.cn/simple|pypi.org/simple|g' uv.lock
+  sed -i 's|pypi.tuna.tsinghua.edu.cn|pypi.org|g' uv.lock
   msg_ok "Fixed PyPI index URL in lock file"
 fi
 
@@ -335,6 +337,21 @@ if grep -q 'requires-python' pyproject.toml 2>/dev/null; then
     sed -i 's/requires-python\s*=.*/requires-python = ">=3.12,<3.15"/' pyproject.toml
     msg_ok "Updated Python version constraint"
   fi
+fi
+
+# ==============================================================================
+# SDK EXCLUSION
+# ==============================================================================
+# Remove the ragflow_sdk package from pyproject.toml since we only need the
+# server components. The SDK is a client library for connecting to RAGFlow
+# from external applications, which is not needed for server-only installations.
+
+msg_info "Excluding SDK Package from Installation"
+if grep -q "sdk.python.ragflow_sdk" pyproject.toml 2>/dev/null; then
+  sed -i '/sdk.python.ragflow_sdk/d' pyproject.toml
+  msg_ok "Excluded ragflow_sdk from installation"
+else
+  msg_ok "SDK package not found in pyproject.toml (already excluded or not present)"
 fi
 
 # Note: We do NOT remove zhipuai or agentrun-sdk from pyproject.toml
