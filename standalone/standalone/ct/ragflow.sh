@@ -88,20 +88,6 @@ function update_script() {
     msg_ok "Fixed PyPI index URL in lock file"
   fi
 
-  # Fix: Ensure Python version constraint matches upstream
-  # RAGFlow upstream uses requires-python = ">=3.12,<3.15"
-  # infinity-sdk requires Python >=3.11,<3.14
-  # The intersection is >=3.12,<3.14, but we keep upstream's constraint
-  # and rely on the lock file for correct resolution
-  if grep -q 'requires-python' pyproject.toml 2>/dev/null; then
-    # Only update if it doesn't match upstream
-    if ! grep -q 'requires-python = ">=3.12,<3.15"' pyproject.toml 2>/dev/null; then
-      msg_info "Updating Python version constraint to match upstream"
-      sed -i 's/requires-python\s*=.*/requires-python = ">=3.12,<3.15"/' pyproject.toml
-      msg_ok "Updated Python version constraint"
-    fi
-  fi
-
   # Remove the ragflow_sdk package from pyproject.toml since we only need the
   # server components. The SDK is a client library for connecting to RAGFlow
   # from external applications, which is not needed for server-only installations.
@@ -111,15 +97,15 @@ function update_script() {
     msg_ok "Excluded ragflow_sdk from installation"
   fi
 
-  # Fix: Remove zhipuai from dependencies due to pyjwt version conflict
-  # zhipuai requires pyjwt>=2.8.0,<2.9.0 but mcp requires pyjwt>=2.10.1
-  # These constraints are incompatible, so we remove zhipuai
-  # zhipuai is only needed for ZhipuAI LLM integration (optional feature)
+  # Fix: Pin MCP version to avoid pyjwt conflict with zhipuai
+  # zhipuai requires pyjwt>=2.8.0,<2.9.0 but mcp>=1.23.0 requires pyjwt>=2.10.1
+  # These constraints are incompatible. However, mcp==1.19.0 doesn't require pyjwt>=2.10.1
+  # By pinning MCP to 1.19.0 (matching upstream's uv.lock), we preserve ZhipuAI functionality
   # See: https://github.com/MetaGLM/zhipuai-sdk-python-v4/issues/103
-  if grep -q "zhipuai" pyproject.toml 2>/dev/null; then
-    msg_info "Removing zhipuai dependency due to pyjwt conflict with mcp"
-    sed -i '/zhipuai/d' pyproject.toml
-    msg_ok "Removed zhipuai from pyproject.toml"
+  if grep -q 'mcp>=' pyproject.toml 2>/dev/null; then
+    msg_info "Pinning MCP version to 1.19.0 to preserve ZhipuAI compatibility"
+    sed -i 's/mcp>=1.23.0/mcp==1.19.0/' pyproject.toml
+    msg_ok "Pinned MCP to version 1.19.0"
   fi
 
   # Note: We do NOT remove agentrun-sdk from pyproject.toml
