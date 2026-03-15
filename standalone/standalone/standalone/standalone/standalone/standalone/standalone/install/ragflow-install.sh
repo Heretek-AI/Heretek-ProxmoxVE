@@ -354,7 +354,18 @@ else
   msg_ok "SDK package not found in pyproject.toml (already excluded or not present)"
 fi
 
-# Note: We do NOT remove zhipuai or agentrun-sdk from pyproject.toml
+# Fix: Pin MCP version to avoid pyjwt conflict with zhipuai
+# zhipuai requires pyjwt>=2.8.0,<2.9.0 but mcp>=1.23.0 requires pyjwt>=2.10.1
+# These constraints are incompatible. However, mcp==1.19.0 doesn't require pyjwt>=2.10.1
+# By pinning MCP to 1.19.0 (matching upstream's uv.lock), we preserve ZhipuAI functionality
+# See: https://github.com/MetaGLM/zhipuai-sdk-python-v4/issues/103
+if grep -q 'mcp>=' pyproject.toml 2>/dev/null; then
+  msg_info "Pinning MCP version to 1.19.0 to preserve ZhipuAI compatibility"
+  sed -i 's/mcp>=1.23.0/mcp==1.19.0/' pyproject.toml
+  msg_ok "Pinned MCP to version 1.19.0"
+fi
+
+# Note: We do NOT remove agentrun-sdk from pyproject.toml
 # These are resolved correctly in the upstream uv.lock file
 # Removing them would require regenerating the lock file, which causes issues
 
@@ -365,7 +376,7 @@ fi
 msg_info "Installing Python Dependencies"
 cd /opt/ragflow || exit
 export UV_SYSTEM_PYTHON=1
-$STD /usr/local/bin/uv sync --python 3.12 --frozen
+$STD /usr/local/bin/uv sync --python 3.12 --frozen --index-strategy unsafe-best-match
 $STD /usr/local/bin/uv run download_deps.py
 msg_ok "Installed Python Dependencies"
 
@@ -634,11 +645,12 @@ customize
 cleanup_lxc
 
 msg_ok "Completed Successfully!\n"
+LOCAL_IP=$(hostname -I | awk '{print $1}')
 echo -e "${CREATING}${GN}RAGFlow has been successfully installed!${CL}"
 echo -e "${INFO}${YW} Access it using the following URL:${CL}"
-echo -e "${TAB}${GATEWAY}${BGN}http://${IP}:80${CL}"
-echo -e "${INFO}${YW} API endpoint: http://${IP}:9380${CL}"
-echo -e "${INFO}${YW} MinIO Console: http://${IP}:9001${CL}"
+echo -e "${TAB}${GATEWAY}${BGN}http://${LOCAL_IP}:80${CL}"
+echo -e "${INFO}${YW} API endpoint: http://${LOCAL_IP}:9380${CL}"
+echo -e "${INFO}${YW} MinIO Console: http://${LOCAL_IP}:9001${CL}"
 echo -e "${INFO}${YW} Credentials saved to: ~/ragflow.creds${CL}"
 echo -e ""
 echo -e "${INFO}${YW} Important Notes:${CL}"
