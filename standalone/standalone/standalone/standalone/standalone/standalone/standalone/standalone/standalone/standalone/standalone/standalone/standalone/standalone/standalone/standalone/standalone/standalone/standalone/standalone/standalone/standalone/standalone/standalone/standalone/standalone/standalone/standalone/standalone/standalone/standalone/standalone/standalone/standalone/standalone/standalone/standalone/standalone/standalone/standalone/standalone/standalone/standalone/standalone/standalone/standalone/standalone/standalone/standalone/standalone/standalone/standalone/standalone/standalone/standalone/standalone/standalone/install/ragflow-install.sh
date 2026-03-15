@@ -305,6 +305,41 @@ if grep -q "gitee.com/infiniflow/graspologic" pyproject.toml 2>/dev/null; then
   msg_ok "Fixed graspologic dependency"
 fi
 
+# Fix: Limit Python version to avoid dependency resolution for future Python versions
+# RAGFlow's dependencies have conflicts when resolving for Python 3.14+
+if grep -q 'requires-python' pyproject.toml 2>/dev/null; then
+  sed -i 's/requires-python.*/requires-python = ">=3.10,<3.13"/' pyproject.toml
+else
+  sed -i '/^\[project\]/a requires-python = ">=3.10,<3.13"' pyproject.toml
+fi
+
+# Add uv environments configuration to limit to Linux x86_64 only
+# This avoids dependency resolution conflicts on macOS/Darwin and ARM64
+if ! grep -q 'tool.uv.environments' pyproject.toml 2>/dev/null; then
+  cat >> pyproject.toml << 'UVENV'
+
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+UVENV
+fi
+
+# Fix: Resolve PyJWT dependency conflict between zhipuai and mcp
+# zhipuai==2.0.1 requires pyjwt>=2.8.0,<2.9.dev0
+# mcp>=1.23.0 requires pyjwt[crypto]>=2.10.1
+# These constraints are mutually exclusive, so we override PyJWT to satisfy mcp
+# Reference: https://github.com/infiniflow/ragflow/issues/4499
+if ! grep -q 'tool.uv.override-dependencies' pyproject.toml 2>/dev/null; then
+  msg_info "Adding dependency overrides for PyJWT conflict resolution"
+  cat >> pyproject.toml << 'OVERRIDE'
+
+[tool.uv.override-dependencies]
+# Force PyJWT version that satisfies mcp's requirement (>=2.10.1)
+# zhipuai's constraint (<2.9.dev0) is overly restrictive and works with newer PyJWT
+pyjwt = ">=2.10.1"
+OVERRIDE
+  msg_ok "Added dependency overrides"
+fi
+
 # Install Python dependencies
 msg_info "Installing Python Dependencies"
 cd /opt/ragflow || exit
