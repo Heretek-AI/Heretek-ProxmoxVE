@@ -111,7 +111,18 @@ function update_script() {
     msg_ok "Excluded ragflow_sdk from installation"
   fi
 
-  # Note: We do NOT remove zhipuai or agentrun-sdk from pyproject.toml
+  # Fix: Remove zhipuai from dependencies due to pyjwt version conflict
+  # zhipuai requires pyjwt>=2.8.0,<2.9.0 but mcp requires pyjwt>=2.10.1
+  # These constraints are incompatible, so we remove zhipuai
+  # zhipuai is only needed for ZhipuAI LLM integration (optional feature)
+  # See: https://github.com/MetaGLM/zhipuai-sdk-python-v4/issues/103
+  if grep -q "zhipuai" pyproject.toml 2>/dev/null; then
+    msg_info "Removing zhipuai dependency due to pyjwt conflict with mcp"
+    sed -i '/zhipuai/d' pyproject.toml
+    msg_ok "Removed zhipuai from pyproject.toml"
+  fi
+
+  # Note: We do NOT remove agentrun-sdk from pyproject.toml
   # These are resolved correctly in the upstream uv.lock file
   # Removing them would require regenerating the lock file, which causes issues
 
@@ -122,7 +133,7 @@ function update_script() {
   msg_info "Reinstalling Python Dependencies"
   cd /opt/ragflow || exit
   export UV_SYSTEM_PYTHON=1
-  $STD /root/.local/bin/uv sync --python 3.12 --frozen
+  $STD /root/.local/bin/uv sync --python 3.12 --frozen --index-strategy unsafe-best-match
   $STD /root/.local/bin/uv run download_deps.py
   msg_ok "Reinstalled Python Dependencies"
 
