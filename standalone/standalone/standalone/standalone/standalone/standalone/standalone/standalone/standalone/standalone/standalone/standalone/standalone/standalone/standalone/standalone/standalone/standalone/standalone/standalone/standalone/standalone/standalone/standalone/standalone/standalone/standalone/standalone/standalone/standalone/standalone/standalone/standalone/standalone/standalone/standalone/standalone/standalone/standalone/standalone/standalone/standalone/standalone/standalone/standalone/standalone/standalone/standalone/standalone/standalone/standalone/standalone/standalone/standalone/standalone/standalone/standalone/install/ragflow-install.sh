@@ -296,58 +296,26 @@ cd /opt/ragflow || exit
 git describe --tags --abbrev=0 > /opt/ragflow/version.txt 2>/dev/null || echo "v0.24.0" > /opt/ragflow/version.txt
 msg_ok "Cloned RAGFlow Repository"
 
-# Fix: Replace gitee.com graspologic dependency with GitHub version
-# RAGFlow's pyproject.toml references a gitee.com fork that requires authentication
-# We replace it with the GitHub mirror which is publicly accessible
-if grep -q "gitee.com/infiniflow/graspologic" pyproject.toml 2>/dev/null; then
-  msg_info "Replacing gitee.com graspologic dependency with GitHub version"
-  sed -i 's|gitee.com/infiniflow/graspologic|github.com/infiniflow/graspologic|g' pyproject.toml
-  msg_ok "Fixed graspologic dependency"
+# Fix: Replace gitee.com URLs in uv.lock with GitHub URLs
+# RAGFlow's uv.lock may reference gitee.com which requires authentication
+# We replace with GitHub mirror which is publicly accessible
+# Note: We modify uv.lock, not pyproject.toml, to preserve the lock file integrity
+if grep -q "gitee.com/infiniflow/graspologic" uv.lock 2>/dev/null; then
+  msg_info "Replacing gitee.com URLs in uv.lock with GitHub"
+  sed -i 's|gitee.com/infiniflow/graspologic|github.com/infiniflow/graspologic|g' uv.lock
+  msg_ok "Fixed graspologic URLs in lock file"
 fi
 
-# Fix: Limit Python version to avoid dependency resolution for future Python versions
-# RAGFlow's dependencies have conflicts when resolving for Python 3.14+
-if grep -q 'requires-python' pyproject.toml 2>/dev/null; then
-  sed -i 's/requires-python.*/requires-python = ">=3.10,<3.13"/' pyproject.toml
-else
-  sed -i '/^\[project\]/a requires-python = ">=3.10,<3.13"' pyproject.toml
-fi
-
-# Add uv environments configuration to limit to Linux x86_64 only
-# This avoids dependency resolution conflicts on macOS/Darwin and ARM64
-if ! grep -q 'tool.uv.environments' pyproject.toml 2>/dev/null; then
-  cat >> pyproject.toml << 'UVENV'
-
-[tool.uv]
-environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
-UVENV
-fi
-
-# Fix: Resolve PyJWT dependency conflict between zhipuai and mcp
-# zhipuai==2.0.1 requires pyjwt>=2.8.0,<2.9.dev0
-# mcp>=1.23.0 requires pyjwt[crypto]>=2.10.1
-# These constraints are mutually exclusive, so we override PyJWT to satisfy mcp
-# Reference: https://github.com/infiniflow/ragflow/issues/4499
-if ! grep -q 'tool.uv.override-dependencies' pyproject.toml 2>/dev/null; then
-  msg_info "Adding dependency overrides for PyJWT conflict resolution"
-  cat >> pyproject.toml << 'OVERRIDE'
-
-[tool.uv.override-dependencies]
-# Force PyJWT version that satisfies mcp's requirement (>=2.10.1)
-# zhipuai's constraint (<2.9.dev0) is overly restrictive and works with newer PyJWT
-pyjwt = ">=2.10.1"
-OVERRIDE
-  msg_ok "Added dependency overrides"
-fi
-
-# Install Python dependencies
+# Install Python dependencies using the lock file
+# The --frozen flag tells uv to use exact versions from uv.lock without re-resolving
+# This avoids dependency conflicts that occur during fresh resolution
 msg_info "Installing Python Dependencies"
 cd /opt/ragflow || exit
 export UV_SYSTEM_PYTHON=1
-# Use --index-strategy unsafe-best-match to handle multiple PyPI indexes
-# and avoid dependency resolution issues with mirrors
-$STD /usr/local/bin/uv sync --python 3.12 --index-strategy unsafe-best-match
-$STD /usr/local/bin/uv run --index-strategy unsafe-best-match download_deps.py
+# Use --frozen to use pre-resolved versions from uv.lock
+# This is how the official Dockerfile handles dependencies
+$STD /usr/local/bin/uv sync --python 3.12 --frozen
+$STD /usr/local/bin/uv run download_deps.py
 msg_ok "Installed Python Dependencies"
 
 # ==============================================================================
