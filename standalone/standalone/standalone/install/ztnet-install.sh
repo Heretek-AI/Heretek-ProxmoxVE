@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 
-# Copyright (c) 2021-2026 community-scripts ORG
-# Author: community-scripts
-# License: MIT | https://github.com/community-scripts/ProxmoxVE/raw/main/LICENSE
+# Author: BillyOutlast
+# License: MIT | https://github.com/Heretek-AI/ProxmoxVE/raw/main/LICENSE
 # Source: https://ztnet.network
 
 source /dev/stdin <<<"$FUNCTIONS_FILE_PATH"
@@ -35,6 +34,10 @@ msg_ok "Installed ZeroTier"
 msg_info "Installing ZTNet"
 curl -s http://install.ztnet.network | bash
 msg_ok "Installed ZTNet"
+
+msg_info "Enabling ZTNet Service"
+$STD systemctl enable --now ztnet
+msg_ok "Started ZTNet"
 
 motd_ssh
 customize
