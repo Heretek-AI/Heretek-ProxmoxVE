@@ -1,0 +1,51 @@
+{
+  "name": "LocalAI",
+  "slug": "localai",
+  "categories": [20],
+  "date_created": "2026-03-14",
+  "type": "ct",
+  "updateable": true,
+  "privileged": false,
+  "interface_port": 8080,
+  "documentation": "https://localai.io/basics/getting_started/",
+  "website": "https://localai.io",
+  "logo": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/webp/localai.webp",
+  "config_path": "",
+  "description": "Free, Open Source OpenAI alternative for local AI inferencing. Self-hosted and local-first. Drop-in replacement, running on consumer-grade hardware. No GPU required. Runs gguf, transformers, diffusers and many more.",
+  "install_methods": [
+    {
+      "type": "default",
+      "script": "ct/localai.sh",
+      "resources": {
+        "cpu": 4,
+        "ram": 8192,
+        "hdd": 20,
+        "os": "Debian",
+        "version": "13"
+      }
+    }
+  ],
+  "default_credentials": {
+    "username": null,
+    "password": null
+  },
+  "notes": [
+    {
+      "text": "Access the WebUI at http://SERVER_IP:8080",
+      "type": "info"
+    },
+    {
+      "text": "Models are stored in /opt/localai/models",
+      "type": "info"
+    },
+    {
+      "text": "OpenAI-compatible API endpoint available at http://SERVER_IP:8080/v1",
+      "type": "info"
+    },
+    {
+      "text": "GPU support is auto-detected at runtime (NVIDIA, AMD, Intel)",
+      "type": "info"
+    }
+  ],
+  "date_created": "2026-03-14"
+}

@@ -39,9 +39,16 @@ $STD uv venv --python 3.12
 source .venv/bin/activate
 msg_ok "Created Virtual Environment"
 
+msg_info "Installing PyTorch"
+# Install PyTorch first (required by unsloth)
+# Use CPU version for broader compatibility; GPU version can be installed manually if needed
+$STD uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+msg_ok "Installed PyTorch"
+
 msg_info "Installing Unsloth"
-# Install unsloth with torch backend auto-detection (GPU drivers must be installed first)
-$STD uv pip install unsloth --torch-backend=auto
+# Install unsloth and its dependencies
+# packaging module is required but not declared as dependency
+$STD uv pip install unsloth packaging
 msg_ok "Installed Unsloth"
 
 msg_info "Running Unsloth Studio Setup"
