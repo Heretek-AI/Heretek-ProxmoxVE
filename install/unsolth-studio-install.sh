@@ -30,18 +30,19 @@ msg_ok "Installed Dependencies"
 setup_hwaccel
 
 # Setup Python virtual environment with uv (fast Python package manager)
-PYTHON_VERSION="3.12" setup_uv
+PYTHON_VERSION="3.13" setup_uv
 
 msg_info "Creating Virtual Environment"
 mkdir -p /opt/unsolth-studio
 cd /opt/unsolth-studio || exit
-$STD uv venv --python 3.12
+$STD uv venv --python 3.13
 source .venv/bin/activate
 msg_ok "Created Virtual Environment"
 
 msg_info "Installing Unsloth"
 # Install unsloth with torch backend auto-detection (GPU drivers must be installed first)
-$STD uv pip install unsloth --torch-backend=auto
+# Also install packaging module which unsloth requires but doesn't declare as dependency
+$STD uv pip install unsloth packaging --torch-backend=auto
 msg_ok "Installed Unsloth"
 
 msg_info "Running Unsloth Studio Setup"
