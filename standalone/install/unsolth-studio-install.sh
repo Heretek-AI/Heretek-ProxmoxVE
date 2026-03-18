@@ -39,11 +39,40 @@ $STD uv venv --python 3.12
 source .venv/bin/activate
 msg_ok "Created Virtual Environment"
 
-msg_info "Installing PyTorch"
-# Install PyTorch first (required by unsloth)
-# Use CPU version for broader compatibility; GPU version can be installed manually if needed
-$STD uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-msg_ok "Installed PyTorch"
+msg_info "Detecting GPU Type for PyTorch Installation"
+# Detect GPU type and install appropriate PyTorch version
+GPU_TYPE="cpu"
+if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
+  GPU_TYPE="nvidia"
+  msg_info "NVIDIA GPU detected - installing PyTorch with CUDA support"
+elif command -v rocminfo &>/dev/null && rocminfo &>/dev/null; then
+  GPU_TYPE="amd"
+  msg_info "AMD GPU detected - installing PyTorch with ROCm support"
+elif [ -d /dev/dri ] && ls /dev/dri/renderD* &>/dev/null; then
+  # Check for AMD GPU in render devices
+  for render_dev in /dev/dri/renderD*; do
+    if udevadm info -q property "$render_dev" 2>/dev/null | grep -q "AMD"; then
+      GPU_TYPE="amd"
+      msg_info "AMD GPU detected via render device - installing PyTorch with ROCm support"
+      break
+    fi
+  done
+fi
+
+if [ "$GPU_TYPE" = "nvidia" ]; then
+  # NVIDIA GPU - install PyTorch with CUDA 12.4 support
+  $STD uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+  msg_ok "Installed PyTorch with CUDA Support"
+elif [ "$GPU_TYPE" = "amd" ]; then
+  # AMD GPU - install PyTorch with ROCm 6.2 support
+  $STD uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.2
+  msg_ok "Installed PyTorch with ROCm Support"
+else
+  # No GPU detected - install CPU version
+  msg_info "No GPU detected - installing PyTorch CPU version"
+  $STD uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+  msg_ok "Installed PyTorch (CPU version)"
+fi
 
 msg_info "Installing Unsloth"
 # Install unsloth and its dependencies
@@ -53,9 +82,20 @@ msg_ok "Installed Unsloth"
 
 msg_info "Running Unsloth Studio Setup"
 # Run the unsloth studio setup command to compile llama.cpp
-# Use Python module invocation since uv pip install doesn't create entry points
-$STD /opt/unsolth-studio/.venv/bin/python -m unsloth studio setup
-msg_ok "Completed Unsloth Studio Setup"
+# This requires GPU access - if GPU passthrough is not configured yet, this will fail
+# Users can run this manually after configuring GPU passthrough
+if /opt/unsolth-studio/.venv/bin/python -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+  $STD /opt/unsolth-studio/.venv/bin/python -m unsloth studio setup
+  msg_ok "Completed Unsloth Studio Setup"
+else
+  msg_info "GPU not detected - skipping Unsloth Studio setup"
+  msg_info "Configure GPU passthrough and run: python -m unsloth studio setup"
+  echo ""
+  echo -e "${GN}Note: GPU passthrough is required for Unsloth Studio.${CL}"
+  echo -e "${GN}After configuring GPU passthrough in Proxmox, run:${CL}"
+  echo -e "${GN}  source /opt/unsolth-studio/.venv/bin/activate && unsloth studio setup${CL}"
+  echo ""
+fi
 
 msg_info "Creating Directories"
 mkdir -p /opt/unsolth-studio/models
@@ -90,8 +130,15 @@ TimeoutStopSec=60
 [Install]
 WantedBy=multi-user.target
 EOF
-systemctl enable -q --now unsolth-studio
+# Don't auto-start the service since GPU passthrough may not be configured yet
+# User needs to configure GPU passthrough first, then start the service manually
+systemctl enable -q unsolth-studio
 msg_ok "Created Service"
+echo ""
+echo -e "${GN}Note: The unsolth-studio service is enabled but not started.${CL}"
+echo -e "${GN}Configure GPU passthrough first, then start with:${CL}"
+echo -e "${GN}  systemctl start unsolth-studio${CL}"
+echo ""
 
 # Create GPU passthrough info file
 cat <<EOF >/opt/unsolth-studio/GPU_PASSTHROUGH.md

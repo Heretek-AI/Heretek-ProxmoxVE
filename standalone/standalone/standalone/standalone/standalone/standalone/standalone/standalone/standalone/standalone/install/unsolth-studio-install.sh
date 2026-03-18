@@ -27,7 +27,7 @@ msg_ok "Installed Dependencies"
 
 # Setup GPU hardware acceleration FIRST (detects GPU, installs drivers, configures permissions)
 # This must run before installing unsloth/torch so PyTorch can detect the GPU
-setup_hardware_acceleration
+setup_hwaccel
 
 # Setup Python virtual environment with uv (fast Python package manager)
 PYTHON_VERSION="3.12" setup_uv
@@ -46,7 +46,8 @@ msg_ok "Installed Unsloth"
 
 msg_info "Running Unsloth Studio Setup"
 # Run the unsloth studio setup command to compile llama.cpp
-$STD unsloth studio setup
+# Use Python module invocation since uv pip install doesn't create entry points
+$STD /opt/unsolth-studio/.venv/bin/python -m unsloth studio setup
 msg_ok "Completed Unsloth Studio Setup"
 
 msg_info "Creating Directories"
@@ -67,7 +68,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/opt/unsolth-studio
 Environment="PATH=/opt/unsolth-studio/.venv/bin:/usr/local/bin:/usr/bin:/bin"
-ExecStart=/bin/sh -c 'source /opt/unsolth-studio/.venv/bin/activate && unsloth studio -H 0.0.0.0 -p 8888'
+ExecStart=/opt/unsolth-studio/.venv/bin/python -m unsloth studio -H 0.0.0.0 -p 8888
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
