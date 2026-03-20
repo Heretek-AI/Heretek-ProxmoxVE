@@ -420,6 +420,12 @@ Exercise vigilance regarding copycat or coat-tailing sites that seek to exploit 
 
 </details>
 
+## 2026-03-20
+
+### 🆕 New Scripts
+
+  - 🔄 Upstream Sync - 2026-03-20 [@BillyOutlast](https://github.com/BillyOutlast) ([#74](https://github.com/Heretek-AI/ProxmoxVE/pull/74))
+
 ## 2026-03-19
 
 ### 📂 Github

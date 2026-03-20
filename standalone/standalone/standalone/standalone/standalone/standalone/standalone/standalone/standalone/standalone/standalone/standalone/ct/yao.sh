@@ -64,4 +64,6 @@ description
 msg_ok "Completed Successfully!\n"
 echo -e "${CREATING}${GN}${APP} setup has been successfully initialized!${CL}"
 echo -e "${INFO}${YW} Access it using the following URL:${CL}"
-echo -e "${TAB}${GATEWAY}${BGN}http://${IP}:5099${CL}"
+echo -e "${TAB}${GATEWAY}${BGN}Website: http://${IP}:5099${CL}"
+echo -e "${TAB}${GATEWAY}${BGN}Dashboard: http://${IP}:5099/yao/auth/entry${CL}"
+echo -e "${TAB}${GATEWAY}${BGN}API: http://${IP}:5099/api${CL}"

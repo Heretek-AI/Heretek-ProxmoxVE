@@ -22,13 +22,69 @@ ssh -L 18789:localhost:18789 root@<container-ip>
 http://localhost:18789
 ```
 
-### Solution 2: HTTPS Reverse Proxy (Production)
+### Solution 2: Allow Insecure Auth (LAN Only)
+
+**Warning:** This reduces security. Only use on trusted networks.
+
+Add `allowInsecureAuth: true` to your OpenClaw configuration:
+
+```bash
+# Edit configuration
+nano ~/.openclaw/openclaw.json
+```
+
+```json
+{
+  "gateway": {
+    "bind": "lan",
+    "port": 18789,
+    "controlUi": {
+      "allowedOrigins": ["http://localhost:18789", "http://127.0.0.1:18789", "http://192.168.31.39:18789"],
+      "allowInsecureAuth": true
+    },
+    "auth": {
+      "mode": "token",
+      "token": "your-secure-token-here"
+    }
+  }
+}
+```
+
+Then restart:
+
+```bash
+systemctl restart openclaw
+```
+
+**Important:**
+
+- `allowInsecureAuth` only works for localhost connections in non-secure HTTP contexts
+- It does **NOT** bypass device identity for remote (non-localhost) connections
+- You must still use SSH tunnel or HTTPS for remote LAN access
+
+### Solution 3: HTTPS Reverse Proxy (Production)
 
 Set up Caddy or Nginx with SSL certificates for secure HTTPS access.
 
-### Solution 3: Tailscale VPN
+### Solution 4: Tailscale VPN
 
 Install Tailscale on both machines and access via Tailscale IP.
+
+### Emergency Break-Glass (NOT Recommended)
+
+For emergency access only, you can completely disable device auth:
+
+```json
+{
+  "gateway": {
+    "controlUi": {
+      "dangerouslyDisableDeviceAuth": true
+    }
+  }
+}
+```
+
+**⚠️ WARNING:** This is a severe security downgrade. Revert immediately after emergency use.
 
 ## "Origin Not Allowed" Error Fix
 
