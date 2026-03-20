@@ -15,7 +15,8 @@ update_os
 msg_info "Installing Dependencies"
 $STD apt-get install -y \
   curl \
-  unzip
+  unzip \
+  sqlite3
 msg_ok "Installed Dependencies"
 
 fetch_and_deploy_gh_release "yao" "YaoApp/yao" "singlefile" "latest" "/usr/local/bin" "yao-*-linux-*"
@@ -33,29 +34,18 @@ EOF
 msg_ok "Created Environment File"
 
 msg_info "Creating Minimal Application Configuration"
+# Create a minimal app.yao - yao will create the database on first run
 cat <<EOF >/opt/yao/app.yao
 {
   "name": "yao-app",
   "version": "1.0.0",
-  "description": "Yao Autonomous Agent Engine",
-  "studio": {
-    "port": 5077
-  },
-  "server": {
-    "port": 5099,
-    "host": "0.0.0.0"
-  },
-  "database": {
-    "driver": "sqlite3",
-    "file": "/opt/yao/data/yao.db"
-  },
-  "session": {
-    "store": "file",
-    "path": "/opt/yao/data/sessions"
-  }
+  "description": "Yao Autonomous Agent Engine"
 }
 EOF
-mkdir -p /opt/yao/data/sessions
+# Create db directory and initialize empty SQLite database
+mkdir -p /opt/yao/db
+# Create empty SQLite database file that yao expects
+sqlite3 /opt/yao/db/yao.db "VACUUM;" 2>/dev/null || touch /opt/yao/db/yao.db
 msg_ok "Created Minimal Application Configuration"
 
 msg_info "Creating Service"

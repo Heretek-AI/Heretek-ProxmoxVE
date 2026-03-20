@@ -31,11 +31,15 @@
   },
   "notes": [
     {
-      "text": "After installation, create a new project: mkdir -p /opt/yao/myapp && cd /opt/yao/myapp && yao start",
+      "text": "A minimal app.yao configuration is created automatically at /opt/yao/app.yao",
       "type": "info"
     },
     {
       "text": "Access the web interface at http://IP:5099",
+      "type": "info"
+    },
+    {
+      "text": "Application data is stored in /opt/yao/data/ including the SQLite database",
       "type": "info"
     },
     {
