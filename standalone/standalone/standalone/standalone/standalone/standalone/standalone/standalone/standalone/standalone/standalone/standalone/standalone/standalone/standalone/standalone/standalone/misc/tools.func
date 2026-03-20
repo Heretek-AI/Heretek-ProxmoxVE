@@ -2198,6 +2198,7 @@ check_for_gh_release() {
   local app="$1"
   local source="$2"
   local pinned_version_in="${3:-}" # optional
+  local pin_reason="${4:-}"        # optional reason shown to user
   local app_lc=""
   app_lc="$(echo "${app,,}" | tr -d ' ')"
   local current_file="$HOME/.${app_lc}"
@@ -2342,7 +2343,11 @@ check_for_gh_release() {
       return 0
     fi
 
-    msg_ok "No update available: ${app} is already on pinned version (${current})"
+    if [[ -n "$pin_reason" ]]; then
+      msg_ok "No update available: ${app} (${current}) - update held back: ${pin_reason}"
+    else
+      msg_ok "No update available: ${app} (${current}) - update temporarily held back due to issues with newer releases"
+    fi
     return 1
   fi
 
@@ -2381,6 +2386,7 @@ check_for_codeberg_release() {
   local app="$1"
   local source="$2"
   local pinned_version_in="${3:-}" # optional
+  local pin_reason="${4:-}"        # optional reason shown to user
   local app_lc="${app,,}"
   local current_file="$HOME/.${app_lc}"
 
@@ -2460,7 +2466,11 @@ check_for_codeberg_release() {
       return 0
     fi
 
-    msg_ok "No update available: ${app} is already on pinned version (${current})"
+    if [[ -n "$pin_reason" ]]; then
+      msg_ok "No update available: ${app} (${current}) - update held back: ${pin_reason}"
+    else
+      msg_ok "No update available: ${app} (${current}) - update temporarily held back due to issues with newer releases"
+    fi
     return 1
   fi
 
@@ -3058,6 +3068,62 @@ function fetch_and_deploy_codeberg_release() {
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
+# Wait for HTTPS connectivity to be ready
+# This is needed because DNS resolution and ping can work before HTTPS is ready
+# during container startup (race condition with network stack initialization)
+#
+# Arguments:
+#   $1 - URL to test (default: https://api.github.com/rate_limit)
+#   $2 - Max wait time in seconds (default: 60)
+#
+# Returns: 0 if HTTPS is ready, 1 if timeout
+# ------------------------------------------------------------------------------
+wait_for_https_readiness() {
+  local test_url="${1:-https://api.github.com/rate_limit}"
+  local max_wait="${2:-60}"
+  local waited=0
+  local interval=2
+  local success_count=0
+  local required_successes=3
+
+  # Check if we're in a container (need longer warmup)
+  if [[ -f /.dockerenv ]] || grep -q 'lxc\|docker\|container' /proc/1/cgroup 2>/dev/null; then
+    # Container detected - start with 5 second delay for network stack to stabilize
+    msg_info "Container detected, waiting for network stack to stabilize..."
+    sleep 5
+  fi
+
+  msg_info "Waiting for HTTPS connectivity..."
+
+  while ((waited < max_wait)); do
+    # Force IPv4 to avoid IPv6 timeout issues in containers with broken IPv6
+    if curl -4 -fsSL --connect-timeout 3 --max-time 10 "$test_url" &>/dev/null; then
+      ((success_count++))
+      msg_ok "HTTPS check ${success_count}/${required_successes} passed"
+      if ((success_count >= required_successes)); then
+        msg_ok "HTTPS connectivity verified after ${waited}s"
+        # Additional stabilization delay after successful checks
+        # Network can be intermittent during container startup
+        msg_info "Waiting 5s for network to stabilize..."
+        sleep 5
+        return 0
+      fi
+      # Wait between successful checks to ensure stability
+      sleep 2
+      ((waited += 2))
+    else
+      success_count=0
+      msg_warn "HTTPS check failed, retrying... (${waited}s/${max_wait}s)"
+    fi
+    sleep $interval
+    ((waited += interval))
+  done
+
+  msg_error "HTTPS connectivity NOT ready after ${max_wait}s timeout"
+  return 1
+}
+
+# ------------------------------------------------------------------------------
 # Scans older GitHub releases for a matching asset when the latest release
 # is missing the expected file. Used internally by fetch_and_deploy_gh_release.
 #
@@ -3195,7 +3261,7 @@ function fetch_and_deploy_gh_release() {
   local header=()
   [[ -n "${GITHUB_TOKEN:-}" ]] && header=(-H "Authorization: token $GITHUB_TOKEN")
 
-  # dns pre check
+  # DNS pre-check
   local gh_host
   gh_host=$(awk -F/ '{print $3}' <<<"$api_url")
   if ! getent hosts "$gh_host" &>/dev/null; then
@@ -3203,10 +3269,21 @@ function fetch_and_deploy_gh_release() {
     return 1
   fi
 
-  local max_retries=3 retry_delay=2 attempt=1 success=false http_code
+  # Wait for HTTPS connectivity to be ready before making API calls
+  # This prevents "no response" errors during container startup when network
+  # stack isn't fully initialized yet (DNS and ping work before HTTPS is ready)
+  # Use 60 second timeout for containers with slow network initialization
+  if ! wait_for_https_readiness "https://api.github.com/rate_limit" 60; then
+    msg_error "HTTPS connectivity not available after 60 seconds"
+    msg_error "Check your network configuration and firewall rules"
+    return 1
+  fi
+
+  local max_retries=5 retry_delay=2 attempt=1 success=false http_code
 
   while ((attempt <= max_retries)); do
-    http_code=$(curl "$api_timeout" -sSL -w "%{http_code}" -o /tmp/gh_rel.json "${header[@]}" "$api_url" 2>/dev/null) || true
+    # Force IPv4 to avoid IPv6 timeout issues in containers with broken IPv6
+    http_code=$(curl -4 "$api_timeout" -sSL -w "%{http_code}" -o /tmp/gh_rel.json "${header[@]}" "$api_url" 2>/dev/null) || true
     if [[ "$http_code" == "200" ]]; then
       success=true
       break
@@ -3234,6 +3311,29 @@ function fetch_and_deploy_gh_release() {
           retry_delay=2
           attempt=0
         fi
+      fi
+    elif [[ "$http_code" == "000" || -z "$http_code" ]]; then
+      # Network failure - use exponential backoff
+      if ((attempt < max_retries)); then
+        msg_warn "Network failure (no response), retrying in ${retry_delay}s... (attempt $attempt/$max_retries)"
+        # Debug: test connectivity during retry
+        if ((attempt == 1)); then
+          msg_info "Testing network connectivity..."
+          # Force IPv4 to avoid IPv6 timeout issues
+          if curl -4 -fsSL --connect-timeout 5 --max-time 10 "https://api.github.com/rate_limit" &>/dev/null; then
+            msg_ok "Network connectivity test passed - API is reachable"
+          else
+            msg_warn "Network connectivity test FAILED - API is NOT reachable"
+            msg_info "This suggests intermittent network issues during container startup"
+          fi
+        fi
+        sleep "$retry_delay"
+        retry_delay=$((retry_delay * 2))
+        ((retry_delay > 30)) && retry_delay=30
+      else
+        msg_error "GitHub API connection failed (no response after $max_retries attempts)."
+        msg_error "Check your network/DNS: curl -sSL https://api.github.com/rate_limit"
+        msg_error "If network works manually, this may be a Proxmox/LXC network timing issue"
       fi
     else
       sleep "$retry_delay"
@@ -5207,24 +5307,7 @@ function setup_java() {
 
   # Get currently installed version
   local INSTALLED_VERSION=""
-  if dpkg -l | grep -q "temurin-.*-jdk" 2>/dev/null; then
-    INSTALLED_VERSION=$(dpkg -l 2>/dev/null | awk '/temurin-.*-jdk/{print $2}' | grep -oP 'temurin-\K[0-9]+' | head -n1 || echo "")
-  fi
-
-  # Validate INSTALLED_VERSION is not empty if JDK package found
-  local JDK_COUNT=0
-  JDK_COUNT=$(dpkg -l 2>/dev/null | grep -c "temurin-.*-jdk" || true)
-  if [[ -z "$INSTALLED_VERSION" && "${JDK_COUNT:-0}" -gt 0 ]]; then
-    msg_warn "Found Temurin JDK but cannot determine version - attempting reinstall"
-    # Try to get actual package name for purge
-    local OLD_PACKAGE
-    OLD_PACKAGE=$(dpkg -l 2>/dev/null | awk '/temurin-.*-jdk/{print $2}' | head -n1 || echo "")
-    if [[ -n "$OLD_PACKAGE" ]]; then
-      msg_info "Removing existing package: $OLD_PACKAGE"
-      $STD apt purge -y "$OLD_PACKAGE" || true
-    fi
-    INSTALLED_VERSION="" # Reset to trigger fresh install
-  fi
+  INSTALLED_VERSION=$(dpkg-query -W -f '${Package}\n' 2>/dev/null | grep -oP '^temurin-\K[0-9]+(?=-jdk$)' | head -n1 || echo "")
 
   # Scenario 1: Already at correct version
   if [[ "$INSTALLED_VERSION" == "$JAVA_VERSION" ]]; then

@@ -98,6 +98,26 @@ mkdir -p /opt/openclaw
 mkdir -p /root/.openclaw
 msg_ok "Created Directories"
 
+msg_info "Creating OpenClaw Configuration"
+# Get the container's IP address for allowedOrigins
+CONTAINER_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -1)
+cat <<EOF >/root/.openclaw/openclaw.json
+{
+  "gateway": {
+    "bind": "lan",
+    "port": 18789,
+    "controlUi": {
+      "allowedOrigins": [
+        "http://localhost:18789",
+        "http://127.0.0.1:18789",
+        "http://${CONTAINER_IP}:18789"
+      ]
+    }
+  }
+}
+EOF
+msg_ok "Created OpenClaw Configuration"
+
 msg_info "Creating Service"
 cat <<EOF >/etc/systemd/system/openclaw.service
 [Unit]
@@ -110,7 +130,7 @@ Type=simple
 User=root
 WorkingDirectory=/opt/openclaw
 Environment=NODE_ENV=production
-ExecStart=/usr/bin/openclaw gateway --port 18789
+ExecStart=/usr/bin/openclaw gateway --port 18789 --bind lan
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

@@ -36,13 +36,17 @@ function update_script() {
 
     msg_info "Backing up Data"
     cp -r /opt/yao/data /opt/yao_data_backup 2>/dev/null || true
+    cp /opt/yao/app.yao /opt/yao_app_backup 2>/dev/null || true
+    cp /opt/yao/.env /opt/yao_env_backup 2>/dev/null || true
     msg_ok "Backed up Data"
 
-    fetch_and_deploy_gh_release "yao" "YaoApp/yao" "singlefile" "latest" "/usr/local/bin" "yao-v*-linux-*"
+    fetch_and_deploy_gh_release "yao" "YaoApp/yao" "singlefile" "latest" "/usr/local/bin" "yao-*-linux-*"
 
     msg_info "Restoring Data"
     cp -r /opt/yao_data_backup/. /opt/yao/data 2>/dev/null || true
-    rm -rf /opt/yao_data_backup
+    cp /opt/yao_app_backup /opt/yao/app.yao 2>/dev/null || true
+    cp /opt/yao_env_backup /opt/yao/.env 2>/dev/null || true
+    rm -rf /opt/yao_data_backup /opt/yao_app_backup /opt/yao_env_backup
     msg_ok "Restored Data"
 
     msg_info "Starting Service"
