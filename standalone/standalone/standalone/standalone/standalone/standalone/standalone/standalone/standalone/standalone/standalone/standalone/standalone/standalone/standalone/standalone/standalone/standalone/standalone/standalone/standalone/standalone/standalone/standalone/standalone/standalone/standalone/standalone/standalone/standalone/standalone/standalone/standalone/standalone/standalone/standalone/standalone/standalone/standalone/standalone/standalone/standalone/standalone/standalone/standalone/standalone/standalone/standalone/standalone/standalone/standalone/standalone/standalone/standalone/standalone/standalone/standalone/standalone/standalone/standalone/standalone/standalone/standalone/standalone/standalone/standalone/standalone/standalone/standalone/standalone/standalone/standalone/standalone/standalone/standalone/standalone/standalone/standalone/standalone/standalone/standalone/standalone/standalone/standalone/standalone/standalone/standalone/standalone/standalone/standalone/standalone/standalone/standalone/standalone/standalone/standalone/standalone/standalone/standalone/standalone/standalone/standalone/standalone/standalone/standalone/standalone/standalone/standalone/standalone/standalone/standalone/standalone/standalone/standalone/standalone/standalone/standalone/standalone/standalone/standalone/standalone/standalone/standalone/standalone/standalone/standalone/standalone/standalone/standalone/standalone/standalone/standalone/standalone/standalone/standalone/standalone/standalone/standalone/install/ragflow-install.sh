@@ -296,25 +296,55 @@ cd /opt/ragflow || exit
 git describe --tags --abbrev=0 > /opt/ragflow/version.txt 2>/dev/null || echo "v0.24.0" > /opt/ragflow/version.txt
 msg_ok "Cloned RAGFlow Repository"
 
-# Fix: Replace gitee.com URLs in uv.lock with GitHub URLs
-# RAGFlow's uv.lock may reference gitee.com which requires authentication
+# Fix: Replace gitee.com URLs with GitHub URLs
+# RAGFlow's pyproject.toml and uv.lock may reference gitee.com which requires authentication
 # We replace with GitHub mirror which is publicly accessible
-# Note: We modify uv.lock, not pyproject.toml, to preserve the lock file integrity
+if grep -q "gitee.com/infiniflow/graspologic" pyproject.toml 2>/dev/null; then
+  msg_info "Replacing gitee.com URLs in pyproject.toml with GitHub"
+  sed -i 's|gitee.com/infiniflow/graspologic|github.com/infiniflow/graspologic|g' pyproject.toml
+  msg_ok "Fixed graspologic URLs in pyproject.toml"
+fi
 if grep -q "gitee.com/infiniflow/graspologic" uv.lock 2>/dev/null; then
   msg_info "Replacing gitee.com URLs in uv.lock with GitHub"
   sed -i 's|gitee.com/infiniflow/graspologic|github.com/infiniflow/graspologic|g' uv.lock
   msg_ok "Fixed graspologic URLs in lock file"
 fi
 
-# Install Python dependencies using the lock file
-# The --frozen flag tells uv to use exact versions from uv.lock without re-resolving
-# This avoids dependency conflicts that occur during fresh resolution
+# Fix: Replace Chinese PyPI mirror with standard PyPI
+# RAGFlow uses pypi.tuna.tsinghua.edu.cn which may not have all packages
+if grep -q "pypi.tuna.tsinghua.edu.cn" pyproject.toml 2>/dev/null; then
+  msg_info "Replacing Chinese PyPI mirror with standard PyPI"
+  sed -i 's|pypi.tuna.tsinghua.edu.cn/simple|pypi.org/simple|g' pyproject.toml
+  msg_ok "Fixed PyPI index URL in pyproject.toml"
+fi
+if grep -q "pypi.tuna.tsinghua.edu.cn" uv.lock 2>/dev/null; then
+  msg_info "Replacing Chinese PyPI mirror in uv.lock with standard PyPI"
+  sed -i 's|pypi.tuna.tsinghua.edu.cn/simple|pypi.org/simple|g' uv.lock
+  msg_ok "Fixed PyPI index URL in lock file"
+fi
+
+# Fix: Limit Python version to avoid dependency resolution issues
+# zhipuai==2.0.1 has pyjwt<2.9.dev0 but mcp>=1.23.0 needs pyjwt>=2.10.1
+# These are incompatible, but only for Python 3.14+ on macOS
+# Limit requires-python to exclude Python 3.14+ to avoid this conflict
+if grep -q 'requires-python.*3.14' pyproject.toml 2>/dev/null || grep -q 'requires-python.*>=3.10' pyproject.toml 2>/dev/null; then
+  msg_info "Limiting Python version range to avoid dependency conflicts"
+  # Replace broad Python version with specific range that excludes 3.14+
+  sed -i 's/requires-python\s*=\s*">=3\.10"/requires-python = ">=3.10,<3.14"/g' pyproject.toml
+  sed -i 's/requires-python\s*=\s*">=3\.11"/requires-python = ">=3.11,<3.14"/g' pyproject.toml
+  sed -i 's/requires-python\s*=\s*">=3\.12"/requires-python = ">=3.12,<3.14"/g' pyproject.toml
+  msg_ok "Limited Python version range in pyproject.toml"
+fi
+
+# Install Python dependencies
+# Use --index-strategy unsafe-best-match to handle multi-index package resolution
+# This allows uv to find packages across different PyPI mirrors
 msg_info "Installing Python Dependencies"
 cd /opt/ragflow || exit
 export UV_SYSTEM_PYTHON=1
-# Use --frozen to use pre-resolved versions from uv.lock
-# This is how the official Dockerfile handles dependencies
-$STD /usr/local/bin/uv sync --python 3.12 --frozen
+$STD /usr/local/bin/uv sync --python 3.12 --index-strategy unsafe-best-match
+$STD /usr/local/bin/uv run download_deps.py
+msg_ok "Installed Python Dependencies"
 $STD /usr/local/bin/uv run download_deps.py
 msg_ok "Installed Python Dependencies"
 
@@ -464,25 +494,15 @@ msg_ok "Created Systemd Services"
 msg_info "Setting up Nginx Frontend"
 $STD apt-get install -y nginx
 
-# Download RAGFlow frontend from Docker image
-msg_info "Extracting RAGFlow Frontend"
+# Build RAGFlow frontend from source (no Docker)
+msg_info "Building RAGFlow Frontend"
 mkdir -p /var/www/ragflow
-cd /tmp || exit
-
-# Pull and extract frontend from Docker image
-if command -v docker &>/dev/null; then
-  $STD docker pull infiniflow/ragflow:v0.24.0
-  $STD docker create --name ragflow-temp infiniflow/ragflow:v0.24.0
-  $STD docker cp ragflow-temp:/ragflow/web /var/www/ragflow/
-  $STD docker rm ragflow-temp
-else
-  # Fallback: clone and build frontend
-  NODE_VERSION="22" setup_nodejs
-  cd /opt/ragflow/web || exit
-  $STD npm install || exit
-  $STD npm run build
-  cp -r /opt/ragflow/web/dist/* /var/www/ragflow/
-fi
+NODE_VERSION="22" setup_nodejs
+cd /opt/ragflow/web || exit
+$STD npm install
+$STD npm run build
+cp -r /opt/ragflow/web/dist/* /var/www/ragflow/
+msg_ok "Built RAGFlow Frontend"
 
 # Configure Nginx
 cat <<EOF >/etc/nginx/sites-available/ragflow.conf

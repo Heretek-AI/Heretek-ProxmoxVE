@@ -3096,7 +3096,8 @@ wait_for_https_readiness() {
   msg_info "Waiting for HTTPS connectivity..."
 
   while ((waited < max_wait)); do
-    if curl -fsSL --connect-timeout 3 --max-time 10 "$test_url" &>/dev/null; then
+    # Force IPv4 to avoid IPv6 timeout issues in containers with broken IPv6
+    if curl -4 -fsSL --connect-timeout 3 --max-time 10 "$test_url" &>/dev/null; then
       ((success_count++))
       msg_ok "HTTPS check ${success_count}/${required_successes} passed"
       if ((success_count >= required_successes)); then
@@ -3281,7 +3282,8 @@ function fetch_and_deploy_gh_release() {
   local max_retries=5 retry_delay=2 attempt=1 success=false http_code
 
   while ((attempt <= max_retries)); do
-    http_code=$(curl "$api_timeout" -sSL -w "%{http_code}" -o /tmp/gh_rel.json "${header[@]}" "$api_url" 2>/dev/null) || true
+    # Force IPv4 to avoid IPv6 timeout issues in containers with broken IPv6
+    http_code=$(curl -4 "$api_timeout" -sSL -w "%{http_code}" -o /tmp/gh_rel.json "${header[@]}" "$api_url" 2>/dev/null) || true
     if [[ "$http_code" == "200" ]]; then
       success=true
       break
@@ -3317,7 +3319,8 @@ function fetch_and_deploy_gh_release() {
         # Debug: test connectivity during retry
         if ((attempt == 1)); then
           msg_info "Testing network connectivity..."
-          if curl -fsSL --connect-timeout 5 --max-time 10 "https://api.github.com/rate_limit" &>/dev/null; then
+          # Force IPv4 to avoid IPv6 timeout issues
+          if curl -4 -fsSL --connect-timeout 5 --max-time 10 "https://api.github.com/rate_limit" &>/dev/null; then
             msg_ok "Network connectivity test passed - API is reachable"
           else
             msg_warn "Network connectivity test FAILED - API is NOT reachable"
