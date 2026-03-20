@@ -285,7 +285,10 @@ EOF
   post_progress_to_api
 
   local tools_content
-  tools_content=$(curl -fsSL ${COMMUNITY_SCRIPTS_URL}/misc/tools.func) || {
+  # Add cache-busting query parameter to ensure we get the latest version
+  # GitHub's CDN caches raw content, which can cause stale scripts to be served
+  local cache_bust="?_=$(date +%s)"
+  tools_content=$(curl -fsSL "${COMMUNITY_SCRIPTS_URL}/misc/tools.func${cache_bust}") || {
     msg_error "Failed to download tools.func"
     exit 115
   }
