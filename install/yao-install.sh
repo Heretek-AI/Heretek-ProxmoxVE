@@ -22,9 +22,13 @@ msg_ok "Installed Dependencies"
 fetch_and_deploy_gh_release "yao" "YaoApp/yao" "singlefile" "latest" "/usr/local/bin" "yao-*-linux-*"
 
 msg_info "Creating Application Directory"
-mkdir -p /opt/yao/data
-mkdir -p /opt/yao/db
+mkdir -p /opt/yao
 msg_ok "Created Application Directory"
+
+msg_info "Initializing Yao Application"
+cd /opt/yao
+$STD yao init
+msg_ok "Initialized Yao Application"
 
 msg_info "Creating Environment File"
 cat <<EOF >/opt/yao/.env
@@ -32,11 +36,6 @@ YAO_PORT=5099
 YAO_STUDIO_PORT=5077
 EOF
 msg_ok "Created Environment File"
-
-msg_info "Initializing Demo Application"
-cd /opt/yao
-$STD yao get yaoapp/demo-app
-msg_ok "Initialized Demo Application"
 
 msg_info "Creating Default Admin User"
 cd /opt/yao

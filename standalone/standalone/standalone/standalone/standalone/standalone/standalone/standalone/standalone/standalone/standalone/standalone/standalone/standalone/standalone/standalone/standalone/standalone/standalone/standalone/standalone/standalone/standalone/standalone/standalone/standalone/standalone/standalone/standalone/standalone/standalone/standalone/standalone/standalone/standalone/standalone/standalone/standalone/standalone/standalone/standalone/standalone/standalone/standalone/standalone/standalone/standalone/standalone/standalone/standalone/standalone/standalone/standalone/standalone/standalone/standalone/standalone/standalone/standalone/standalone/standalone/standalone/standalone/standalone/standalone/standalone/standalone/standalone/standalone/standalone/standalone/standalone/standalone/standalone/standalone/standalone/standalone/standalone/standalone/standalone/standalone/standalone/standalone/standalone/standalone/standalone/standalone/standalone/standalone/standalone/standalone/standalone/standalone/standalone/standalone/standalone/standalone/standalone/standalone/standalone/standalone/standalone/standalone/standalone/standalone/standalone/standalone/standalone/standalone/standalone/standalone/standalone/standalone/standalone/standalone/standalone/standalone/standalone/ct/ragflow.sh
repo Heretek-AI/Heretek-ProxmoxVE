@@ -74,69 +74,55 @@ function update_script() {
   fi
 
   # Fix: Replace Chinese PyPI mirror with standard PyPI
+  # https://github.com/astral-sh/uv/issues/10462
+  # uv records index url into uv.lock but doesn't failover among multiple indexes
   # RAGFlow uses pypi.tuna.tsinghua.edu.cn which may not have all packages
   if grep -q "pypi.tuna.tsinghua.edu.cn" pyproject.toml 2>/dev/null; then
     msg_info "Replacing Chinese PyPI mirror with standard PyPI"
-    sed -i 's|pypi.tuna.tsinghua.edu.cn/simple|pypi.org/simple|g' pyproject.toml
+    sed -i 's|pypi.tuna.tsinghua.edu.cn|pypi.org|g' pyproject.toml
     msg_ok "Fixed PyPI index URL in pyproject.toml"
   fi
   if grep -q "pypi.tuna.tsinghua.edu.cn" uv.lock 2>/dev/null; then
     msg_info "Replacing Chinese PyPI mirror in uv.lock with standard PyPI"
-    sed -i 's|pypi.tuna.tsinghua.edu.cn/simple|pypi.org/simple|g' uv.lock
+    sed -i 's|pypi.tuna.tsinghua.edu.cn|pypi.org|g' uv.lock
     msg_ok "Fixed PyPI index URL in lock file"
   fi
 
-  # Fix: Limit Python version to avoid dependency resolution issues
-  # zhipuai==2.0.1 has pyjwt<2.9.dev0 but mcp>=1.23.0 needs pyjwt>=2.10.1
-  # These are incompatible for Python 3.14+ on macOS, but we're on Linux with Python 3.12
-  # Limit requires-python to exclude Python 3.14+ to avoid this conflict
-  msg_info "Fixing Python version constraints"
-  # Read current requires-python and update it
+  # Fix: Ensure Python version constraint matches upstream
+  # RAGFlow upstream uses requires-python = ">=3.12,<3.15"
+  # infinity-sdk requires Python >=3.11,<3.14
+  # The intersection is >=3.12,<3.14, but we keep upstream's constraint
+  # and rely on the lock file for correct resolution
   if grep -q 'requires-python' pyproject.toml 2>/dev/null; then
-    # Replace any requires-python with our constrained version
-    sed -i 's/requires-python\s*=.*/requires-python = ">=3.10,<3.14"/' pyproject.toml
-    msg_ok "Limited Python version range in pyproject.toml"
-  else
-    # Add requires-python if not present
-    sed -i '/^\[project\]/a requires-python = ">=3.10,<3.14"' pyproject.toml
-    msg_ok "Added Python version constraint to pyproject.toml"
+    # Only update if it doesn't match upstream
+    if ! grep -q 'requires-python = ">=3.12,<3.15"' pyproject.toml 2>/dev/null; then
+      msg_info "Updating Python version constraint to match upstream"
+      sed -i 's/requires-python\s*=.*/requires-python = ">=3.12,<3.15"/' pyproject.toml
+      msg_ok "Updated Python version constraint"
+    fi
   fi
 
-  # Fix: Remove zhipuai dependency - it's incompatible with mcp>=1.23.0
-  # zhipuai has pyjwt<2.9.dev0 constraint which conflicts with mcp's pyjwt>=2.10.1
-  # zhipuai is only needed for ZhipuAI LLM provider, which is optional
-  if grep -q 'zhipuai' pyproject.toml 2>/dev/null; then
-    msg_info "Removing incompatible zhipuai dependency"
-    # Remove zhipuai from dependencies - it's an optional LLM provider
-    sed -i '/zhipuai/d' pyproject.toml
-    msg_ok "Removed zhipuai dependency"
+  # Remove the ragflow_sdk package from pyproject.toml since we only need the
+  # server components. The SDK is a client library for connecting to RAGFlow
+  # from external applications, which is not needed for server-only installations.
+  if grep -q "sdk.python.ragflow_sdk" pyproject.toml 2>/dev/null; then
+    msg_info "Excluding SDK Package from Installation"
+    sed -i '/sdk.python.ragflow_sdk/d' pyproject.toml
+    msg_ok "Excluded ragflow_sdk from installation"
   fi
 
-  # Fix: Remove agentrun-sdk dependency - it's incompatible with crawl4ai
-  # agentrun-sdk requires alibabacloud-tea-openapi which needs cryptography<45.0.0
-  # but crawl4ai requires pyopenssl>=25.3.0 which needs cryptography>=45.0.7
-  # agentrun-sdk is only needed for Alibaba Cloud AgentRun, which is optional
-  if grep -q 'agentrun-sdk' pyproject.toml 2>/dev/null; then
-    msg_info "Removing incompatible agentrun-sdk dependency"
-    sed -i '/agentrun-sdk/d' pyproject.toml
-    msg_ok "Removed agentrun-sdk dependency"
-  fi
+  # Note: We do NOT remove zhipuai or agentrun-sdk from pyproject.toml
+  # These are resolved correctly in the upstream uv.lock file
+  # Removing them would require regenerating the lock file, which causes issues
 
-  # Remove the lock file to force fresh dependency resolution
-  # This avoids issues with platform-specific markers in the existing lock
-  if [ -f "uv.lock" ]; then
-    msg_info "Removing existing lock file for fresh resolution"
-    rm -f uv.lock
-    msg_ok "Removed lock file"
-  fi
-
+  # Install Python dependencies using the upstream lock file
+  # The --frozen flag tells uv to use the lock file as-is without re-resolution
+  # This is the official RAGFlow installation method from their documentation
+  # Reference: https://ragflow.io/docs/launch_ragflow_from_source
   msg_info "Reinstalling Python Dependencies"
   cd /opt/ragflow || exit
   export UV_SYSTEM_PYTHON=1
-  # Use --index-strategy unsafe-best-match to handle multi-index package resolution
-  # Use --python-platform linux to only resolve for Linux (skip macOS/Windows markers)
-  # Use --prerelease=allow to allow pre-release versions if needed
-  $STD /root/.local/bin/uv sync --python 3.12 --index-strategy unsafe-best-match --python-platform linux --prerelease=allow
+  $STD /root/.local/bin/uv sync --python 3.12 --frozen
   $STD /root/.local/bin/uv run download_deps.py
   msg_ok "Reinstalled Python Dependencies"
 
