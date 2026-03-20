@@ -18,7 +18,7 @@ $STD apt-get install -y \
   unzip
 msg_ok "Installed Dependencies"
 
-fetch_and_deploy_gh_release "yao" "YaoApp/yao" "singlefile" "latest" "/usr/local/bin" "yao-v*-linux-*"
+fetch_and_deploy_gh_release "yao" "YaoApp/yao" "singlefile" "latest" "/usr/local/bin" "yao-*-linux-*"
 
 msg_info "Creating Application Directory"
 mkdir -p /opt/yao/data

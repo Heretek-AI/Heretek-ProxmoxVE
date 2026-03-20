@@ -1,5 +1,5 @@
 {
-  "generated": "2026-03-19T06:41:06Z",
+  "generated": "2026-03-19T18:38:18Z",
   "versions": [
     {
       "slug": "agregarr",
@@ -18,9 +18,9 @@
     {
       "slug": "llamacpp",
       "repo": "ggml-org/llama.cpp",
-      "version": "b8417",
+      "version": "b8429",
       "pinned": false,
-      "date": "2026-03-19T05:37:13Z"
+      "date": "2026-03-19T14:00:45Z"
     },
     {
       "slug": "localai",
@@ -54,7 +54,7 @@
       "slug": "ragflow",
       "repo": "infiniflow/ragflow",
       "version": "v0.24.0",
-      "pinned": true,
+      "pinned": false,
       "date": "2026-02-10T09:27:14Z"
     },
     {

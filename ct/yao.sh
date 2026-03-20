@@ -38,7 +38,7 @@ function update_script() {
     cp -r /opt/yao/data /opt/yao_data_backup 2>/dev/null || true
     msg_ok "Backed up Data"
 
-    fetch_and_deploy_gh_release "yao" "YaoApp/yao" "singlefile" "latest" "/usr/local/bin" "yao-v*-linux-*"
+    fetch_and_deploy_gh_release "yao" "YaoApp/yao" "singlefile" "latest" "/usr/local/bin" "yao-*-linux-*"
 
     msg_info "Restoring Data"
     cp -r /opt/yao_data_backup/. /opt/yao/data 2>/dev/null || true
