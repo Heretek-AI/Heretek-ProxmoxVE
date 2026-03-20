@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+# Copyright (c) 2021-2026 community-scripts ORG
 # Author: BillyOutlast
 # License: MIT | https://github.com/Heretek-AI/ProxmoxVE/raw/main/LICENSE
 # Source: https://github.com/infiniflow/ragflow
@@ -111,6 +112,14 @@ max_allowed_packet=1073741824
 max_connections=900
 character-set-server=utf8mb4
 collation-server=utf8mb4_unicode_ci
+# Connection handling optimizations
+wait_timeout=28800
+interactive_timeout=28800
+connect_timeout=60
+# Buffer pool for performance
+innodb_buffer_pool_size=2G
+# Connection queue
+back_log=900
 EOF
 systemctl restart mariadb
 msg_ok "Configured MariaDB"
@@ -232,6 +241,10 @@ MINIO_PASS=$(openssl rand -base64 18 | tr -dc 'a-zA-Z0-9' | head -c16)
 curl -fsSL https://dl.min.io/server/minio/release/linux-amd64/minio -o /usr/local/bin/minio
 chmod +x /usr/local/bin/minio
 
+# Download MinIO Client (mc) for bucket management
+curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
+chmod +x /usr/local/bin/mc
+
 # Create MinIO directories
 mkdir -p /var/lib/minio/data
 
@@ -265,6 +278,18 @@ for i in {1..30}; do
   fi
   sleep 1
 done
+
+# Create ragflow bucket using MinIO Client
+msg_info "Creating MinIO Bucket"
+for i in {1..30}; do
+  if /usr/local/bin/mc alias set local http://localhost:9000 rag_flow "${MINIO_PASS}" 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+/usr/local/bin/mc mb local/ragflow --ignore-existing 2>/dev/null || true
+msg_ok "Created MinIO Bucket"
+
 msg_ok "MinIO Installed"
 
 # ==============================================================================
@@ -272,7 +297,7 @@ msg_ok "MinIO Installed"
 # ==============================================================================
 
 msg_info "Downloading RAGFlow"
-fetch_and_deploy_gh_release "ragflow" "infiniflow/ragflow" "tarball" "v0.24.0" "/opt/ragflow"
+fetch_and_deploy_gh_release "ragflow" "infiniflow/ragflow" "tarball" "latest" "/opt/ragflow"
 msg_ok "Downloaded RAGFlow"
 
 # ==============================================================================
@@ -309,8 +334,8 @@ mysql:
   password: '${MARIADB_DB_PASS}'
   host: 'localhost'
   port: 3306
-  max_connections: 900
-  stale_timeout: 300
+  max_connections: 100
+  stale_timeout: 60
   max_allowed_packet: 1073741824
 minio:
   user: 'rag_flow'
@@ -358,7 +383,7 @@ SVR_WEB_HTTPS_PORT=443
 SVR_HTTP_PORT=9380
 ADMIN_SVR_HTTP_PORT=9381
 SVR_MCP_PORT=9382
-RAGFLOW_IMAGE=infiniflow/ragflow:v0.24.0
+RAGFLOW_IMAGE=infiniflow/ragflow:latest
 TZ=UTC
 REGISTER_ENABLED=1
 THREAD_POOL_MAX_WORKERS=128
@@ -377,6 +402,7 @@ cat <<EOF >/etc/systemd/system/ragflow-server.service
 Description=RAGFlow Backend Server
 After=network.target mariadb.service elasticsearch.service redis-server.service minio.service
 Requires=mariadb.service elasticsearch.service redis-server.service minio.service
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -384,7 +410,10 @@ WorkingDirectory=/opt/ragflow
 Environment=PYTHONPATH=/opt/ragflow
 Environment=LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/
 Environment=NLTK_DATA=/opt/ragflow/nltk_data
-ExecStartPre=/bin/sleep 10
+# Wait for services to be fully ready
+ExecStartPre=/bin/sleep 15
+# Health check for MariaDB
+ExecStartPre=/bin/bash -c 'for i in {1..30}; do mysqladmin ping -h localhost --silent && break; sleep 1; done'
 ExecStart=/usr/local/bin/uv run --index-strategy unsafe-best-match python api/ragflow_server.py
 Restart=on-failure
 RestartSec=10
@@ -416,6 +445,43 @@ LimitNOFILE=65535
 [Install]
 WantedBy=multi-user.target
 EOF
+
+# ==============================================================================
+# OPTIONAL: MCP SERVER SERVICE
+# ==============================================================================
+# The MCP (Model Context Protocol) server is optional and provides integration
+# with AI assistants like Claude Desktop. It runs on port 9382 by default.
+# To enable: systemctl enable --now ragflow-mcp.service
+
+msg_info "Creating Optional MCP Server Service"
+
+cat <<EOF >/etc/systemd/system/ragflow-mcp.service
+[Unit]
+Description=RAGFlow MCP Server (Model Context Protocol)
+After=network.target mariadb.service elasticsearch.service redis-server.service minio.service ragflow-server.service
+Requires=mariadb.service elasticsearch.service redis-server.service minio.service ragflow-server.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ragflow
+Environment=PYTHONPATH=/opt/ragflow
+Environment=LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/
+Environment=NLTK_DATA=/opt/ragflow/nltk_data
+ExecStartPre=/bin/sleep 15
+ExecStart=/usr/local/bin/uv run --index-strategy unsafe-best-match python mcp/server/server.py --host=0.0.0.0 --port=9382 --base-url=http://127.0.0.1:9380
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=300
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# MCP service is disabled by default - users must opt-in
+systemctl disable ragflow-mcp.service 2>/dev/null || true
+
+msg_ok "Created Optional MCP Server Service (disabled by default)"
 
 msg_ok "Created Systemd Services"
 
@@ -500,10 +566,22 @@ msg_ok "Nginx Frontend Configured"
 # ==============================================================================
 
 msg_info "Starting RAGFlow Services"
+systemctl enable -q ragflow-server
 systemctl start ragflow-server
 sleep 5
+systemctl enable -q ragflow-task-executor
 systemctl start ragflow-task-executor
+
 msg_ok "Started RAGFlow Services"
+
+# ==============================================================================
+# Reloading Nginx and services after installation
+# ==============================================================================
+
+msg_info "Reloading Nginx and Services"
+systemctl reload nginx
+systemctl restart nginx
+msg_ok "Reloaded Nginx"
 
 # ==============================================================================
 # FINALIZATION
@@ -538,3 +616,8 @@ echo -e "${TAB}- Configure your LLM API key in the web interface"
 echo -e "${TAB}- Default uses CPU for document processing"
 echo -e "${TAB}- For GPU acceleration, additional configuration required"
 echo -e "${TAB}- Elasticsearch may take 1-2 minutes to fully initialize"
+echo -e ""
+echo -e "${INFO}${YW} Optional MCP Server (for AI assistant integration):${CL}"
+echo -e "${TAB}- MCP endpoint: http://${LOCAL_IP}:9382"
+echo -e "${TAB}- Enable with: systemctl enable --now ragflow-mcp.service"
+echo -e "${TAB}- Requires RAGFlow API key from web interface"

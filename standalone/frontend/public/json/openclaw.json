@@ -1,9 +1,7 @@
 {
   "name": "OpenClaw",
   "slug": "openclaw",
-  "categories": [
-    20
-  ],
+  "categories": [20],
   "date_created": "2026-03-12",
   "type": "ct",
   "updateable": true,
@@ -12,7 +10,7 @@
   "documentation": "https://docs.openclaw.ai",
   "website": "https://openclaw.ai",
   "logo": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/webp/openclaw.webp",
-  "config_path": "/root/.openclaw/openclaw.json",
+  "config_path": "/home/openclaw/.openclaw/openclaw.json",
   "description": "OpenClaw is a personal AI assistant that runs on your own devices. It supports multiple messaging channels including WhatsApp, Telegram, Slack, Discord, Signal, iMessage, IRC, Microsoft Teams, Matrix, and more. Features voice wake mode, live canvas, browser control, skills platform, and a Gateway WebSocket control plane.",
   "install_methods": [
     {
@@ -37,7 +35,11 @@
       "type": "info"
     },
     {
-      "text": "WebSocket endpoint: ws://<IP>:18789",
+      "text": "HTTPS Access (secure): https://<IP>:18790",
+      "type": "info"
+    },
+    {
+      "text": "WebSocket endpoint: ws://<IP>:18789 (or wss://<IP>:18790 for secure)",
       "type": "info"
     },
     {
@@ -45,11 +47,15 @@
       "type": "info"
     },
     {
-      "text": "Run 'openclaw onboard' after installation to configure channels and AI providers",
+      "text": "Configuration stored in /home/openclaw/.openclaw/",
       "type": "info"
     },
     {
-      "text": "Configuration stored in /root/.openclaw/",
+      "text": "HTTPS uses self-signed certificate - click 'Advanced' -> 'Proceed to site' in browser",
+      "type": "warning"
+    },
+    {
+      "text": "For remote LAN access, use HTTPS (port 18790) or SSH tunnel: ssh -L 18789:localhost:18789 root@<container-ip>",
       "type": "info"
     },
     {

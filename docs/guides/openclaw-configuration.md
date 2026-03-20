@@ -172,7 +172,7 @@ Add the configuration with your IP:
     "bind": "lan",
     "port": 18789,
     "controlUi": {
-      "allowedOrigins": ["http://localhost:18789", "http://127.0.0.1:18789", "http://192.168.31.39:18789"]
+      "allowedOrigins": ["http://localhost:18789", "http://127.0.0.1:18789", "http://192.168.1.4:18789"]
     }
   }
 }

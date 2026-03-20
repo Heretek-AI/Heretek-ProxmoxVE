@@ -22,41 +22,67 @@ msg_ok "Installed Dependencies"
 fetch_and_deploy_gh_release "yao" "YaoApp/yao" "singlefile" "latest" "/usr/local/bin" "yao-*-linux-*"
 
 msg_info "Creating Application Directory"
-mkdir -p /opt/yao/data
-mkdir -p /opt/yao/etc
-mkdir -p /opt/yao/connectors
-mkdir -p /opt/yao/scripts
-mkdir -p /opt/yao/suis
-mkdir -p /opt/yao/agent
-mkdir -p /opt/yao/openapi
-mkdir -p /opt/yao/services
-mkdir -p /opt/yao/public
-mkdir -p /opt/yao/icons
-mkdir -p /opt/yao/public/.well-known
-mkdir -p /opt/yao/logins
-mkdir -p /opt/yao/models/admin
-mkdir -p /opt/yao/flows/app
+rm -rf /opt/yao
+mkdir -p /opt/yao
 msg_ok "Created Application Directory"
+
+msg_info "Initializing Yao Application"
+cd /opt/yao
+$STD yao init
+msg_ok "Initialized Yao Application"
+
+# Create additional directories after init
+mkdir -p /opt/yao/{db,logins,models,flows,scripts,public,logs,icons}
+
+# Generate secure secrets
+YAO_CLIENT_ID=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
+YAO_JWT_SECRET=$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)
+YAO_AES_KEY=$(openssl rand -base64 24 | tr -d '/+=' | head -c 24)
 
 msg_info "Creating Environment File"
 cat <<EOF >/opt/yao/.env
+# ============================================
+# Yao Application Configuration
+# ============================================
+
+# Database Configuration
+YAO_DB_DRIVER="sqlite3"
+YAO_DB_PRIMARY="./db/yao.db"
+
+# Security
+YAO_JWT_SECRET="${YAO_JWT_SECRET}"
+YAO_DB_AESKEY="${YAO_AES_KEY}"
+
+# OAuth/OpenAPI
+YAO_CLIENT_ID="${YAO_CLIENT_ID}"
+
+# Login Redirects
+AFTER_LOGIN_SUCCESS_URL="/mission-control"
+AFTER_LOGIN_FAILURE_URL="/dashboard/auth/entry"
+
+# Server Configuration
+YAO_ENV="production"
+YAO_HOST="0.0.0.0"
 YAO_PORT=5099
-YAO_STUDIO_PORT=5077
+YAO_LOG="./logs/application.log"
+YAO_LOG_MODE="TEXT"
+YAO_SESSION_FILE="./db/.session"
+YAO_SESSION_STORE="file"
 EOF
 msg_ok "Created Environment File"
 
 msg_info "Creating Application Configuration"
-cat <<EOF >/opt/yao/app.yao
+cat <<'EOF' >/opt/yao/app.yao
 {
-  "xgen": "1.0",
   "name": "Yao Application",
   "short": "Yao",
-  "description": "Yao Autonomous Agent Engine",
+  "description": "Autonomous Agent Engine",
   "version": "1.0.0",
-  "adminRoot": "admin",
+  "adminRoot": "dashboard",
+  "setup": "scripts.setup.Init",
   "menu": {
-    "process": "flows.app.menu",
-    "args": ["yao"]
+    "process": "scripts.menu.Get",
+    "args": []
   },
   "optional": {
     "hideNotification": true,
@@ -64,129 +90,39 @@ cat <<EOF >/opt/yao/app.yao
   }
 }
 EOF
-msg_info "Creating Database Directory"
-mkdir -p /opt/yao/db
-msg_info "Creating Empty SQLite Database"
-sqlite3 /opt/yao/db/yao.db "VACUUM;" 2>/dev/null || touch /opt/yao/db/yao.db
 msg_ok "Created Application Configuration"
 
-msg_info "Creating Agent Configuration"
-cat <<EOF >/opt/yao/agent/agent.yml
-# Yao Agent Configuration
-# This is a minimal configuration file for the agent system
-version: "1.0"
-agents: []
-EOF
-msg_ok "Created Agent Configuration"
-
-msg_info "Creating OpenAPI Configuration"
-cat <<EOF >/opt/yao/openapi/openapi.yao
-// OpenAPI Configuration
-// This is a minimal configuration file for OpenAPI support
+msg_info "Creating Admin Login Widget"
+cat <<'EOF' >/opt/yao/logins/admin.login.json
 {
-  "openapi": "3.0.0",
-  "info": {
-    "title": "Yao API",
-    "version": "1.0.0"
-  },
-  "paths": {}
-}
-EOF
-msg_ok "Created OpenAPI Configuration"
-
-msg_info "Downloading Application Icons"
-curl -fsSL "https://raw.githubusercontent.com/YaoApp/yao-dev-app/main/icons/app.ico" -o /opt/yao/icons/app.ico
-curl -fsSL "https://raw.githubusercontent.com/YaoApp/yao-dev-app/main/icons/app.png" -o /opt/yao/icons/app.png
-msg_ok "Downloaded Application Icons"
-
-msg_info "Creating Well-Known Configuration"
-cat <<EOF >/opt/yao/public/.well-known/yao
-{
-  "name": "yao-app",
-  "version": "1.0.0",
-  "description": "Yao Autonomous Agent Engine"
-}
-EOF
-msg_ok "Created Well-Known Configuration"
-
-msg_info "Creating Login Configuration"
-cat <<EOF >/opt/yao/logins/admin.login.yao
-{
-  "name": "Admin Login",
+  "name": "::Admin Login",
   "action": {
     "process": "yao.login.Admin",
     "args": [":payload"]
   },
   "layout": {
-    "entry": "/x/Chart/dashboard",
+    "entry": "/mission-control",
     "captcha": "yao.utils.Captcha",
-    "cover": "/assets/images/login/cover.svg",
-    "slogan": "Yao Autonomous Agent Engine",
+    "slogan": "::Build Autonomous Agents with Yao",
     "site": "https://yaoapps.com"
   }
 }
 EOF
-cat <<EOF >/opt/yao/logins/user.login.yao
-{
-  "name": "User Login",
-  "action": {
-    "process": "scripts.user.Login",
-    "args": [":payload"]
-  },
-  "layout": {
-    "entry": "/x/Table/pet",
-    "captcha": "yao.utils.Captcha",
-    "cover": "/assets/images/login/cover.svg",
-    "slogan": "Yao Autonomous Agent Engine",
-    "site": "https://yaoapps.com/doc"
-  }
-}
-EOF
-msg_ok "Created Login Configuration"
+msg_ok "Created Admin Login Widget"
 
 msg_info "Creating Admin User Model"
-cat <<EOF >/opt/yao/models/admin/user.mod.yao
+cat <<'EOF' >/opt/yao/models/admin.mod.json
 {
-  "name": "AdminUser",
-  "table": { "name": "admin_user", "comment": "The administrator table" },
+  "name": "Admin User",
+  "table": {
+    "name": "admin_user",
+    "comment": "Admin User"
+  },
   "columns": [
-    { "label": "ID", "name": "id", "type": "ID" },
     {
-      "label": "Type",
-      "name": "type",
-      "type": "enum",
-      "option": ["admin", "staff", "user", "robot"],
-      "comment": "AccountTypes: admin, staff, user, robot",
-      "default": "user",
-      "index": true
-    },
-    {
-      "label": "Email",
-      "name": "email",
-      "type": "string",
-      "length": 50,
-      "comment": "Email",
-      "index": true,
-      "nullable": true
-    },
-    {
-      "label": "Mobile",
-      "name": "mobile",
-      "type": "string",
-      "length": 50,
-      "comment": "Mobile",
-      "index": true,
-      "nullable": true
-    },
-    {
-      "label": "Login Password",
-      "name": "password",
-      "type": "string",
-      "length": 256,
-      "comment": "Login Password",
-      "crypt": "PASSWORD",
-      "index": true,
-      "nullable": true
+      "label": "ID",
+      "name": "id",
+      "type": "ID"
     },
     {
       "label": "Name",
@@ -198,86 +134,211 @@ cat <<EOF >/opt/yao/models/admin/user.mod.yao
       "nullable": true
     },
     {
+      "label": "Email",
+      "name": "email",
+      "type": "string",
+      "length": 128,
+      "comment": "Email",
+      "unique": true,
+      "index": true,
+      "nullable": true,
+      "validations": [
+        {
+          "method": "email",
+          "args": [],
+          "message": "{{input}} should be email"
+        }
+      ]
+    },
+    {
+      "label": "Password",
+      "name": "password",
+      "type": "string",
+      "length": 256,
+      "comment": "Password",
+      "crypt": "PASSWORD",
+      "index": true,
+      "nullable": true,
+      "validations": [
+        {
+          "method": "typeof",
+          "args": ["string"],
+          "message": "{{input}} Error"
+        },
+        {
+          "method": "minLength",
+          "args": [6],
+          "message": "{{label}} must be at least 6 characters"
+        }
+      ]
+    },
+    {
+      "label": "Type",
+      "name": "type",
+      "type": "string",
+      "length": 20,
+      "comment": "User Type",
+      "default": "user",
+      "index": true
+    },
+    {
       "label": "Status",
-      "comment": "Status",
       "name": "status",
       "type": "enum",
       "default": "enabled",
       "option": ["enabled", "disabled"],
       "index": true
+    },
+    {
+      "label": "Extra",
+      "name": "extra",
+      "type": "json",
+      "comment": "Extra",
+      "nullable": true
     }
   ],
   "relations": {},
-  "values": [
-    {
-      "name": "Admin",
-      "type": "admin",
-      "email": "admin@localhost",
-      "password": "admin123",
-      "status": "enabled"
-    }
-  ],
-  "indexes": [
-    {
-      "comment": "Email Unique Index",
-      "name": "type_email_unique",
-      "columns": ["type", "email"],
-      "type": "unique"
-    }
-  ],
-  "option": { "timestamps": true, "soft_deletes": true }
+  "values": [],
+  "indexes": [],
+  "option": {
+    "timestamps": true,
+    "soft_deletes": true
+  }
 }
 EOF
 msg_ok "Created Admin User Model"
 
-msg_info "Creating User Login Script"
-cat <<EOF >/opt/yao/scripts/user.js
-/**
- * User Login
- * @param {*} payload
- */
-function Login(payload) {
-  log.Trace("[user] Login %s", payload.email);
-  return Process("yao.login.Admin", payload);
-}
-EOF
-msg_ok "Created User Login Script"
-
 msg_info "Creating Menu Flow"
-cat <<EOF >/opt/yao/flows/app/menu.flow.yao
+cat <<'EOF' >/opt/yao/flows/menu.flow.yao
 {
-  "label": "Application Menu",
-  "version": "1.0.0",
-  "description": "Application Menu Flow",
-  "nodes": [
-    {
-      "id": "menu",
-      "type": "menu",
-      "config": {
-        "items": [
-          {
-            "id": "dashboard",
-            "title": "Dashboard",
-            "icon": "dashboard",
-            "path": "/x/Chart/dashboard"
-          },
-          {
-            "id": "admin",
-            "title": "Admin",
-            "icon": "admin",
-            "path": "/x/Table/admin_user"
-          }
-        ]
+  "name": "Menu",
+  "nodes": [],
+  "output": {
+    "items": [
+      {
+        "name": "Dashboard",
+        "path": "/mission-control",
+        "icon": { "name": "material-dashboard", "size": 22 }
+      },
+      {
+        "name": "Agents",
+        "path": "/agents",
+        "icon": { "name": "material-smart_toy", "size": 22 }
+      },
+      {
+        "name": "Data",
+        "path": "/data",
+        "icon": { "name": "material-storage", "size": 22 }
+      },
+      {
+        "name": "Settings",
+        "path": "/settings",
+        "icon": { "name": "material-settings", "size": 22 }
       }
-    }
-  ],
-  "output": "menu"
+    ],
+    "setting": [
+      {
+        "icon": { "name": "material-person", "size": 22 },
+        "name": "Account",
+        "path": "/account"
+      }
+    ]
+  }
 }
 EOF
 msg_ok "Created Menu Flow"
 
+msg_info "Creating Setup Script"
+cat <<'EOF' >/opt/yao/scripts/setup.ts
+import { Process, Model } from "@yao/runtime";
+
+/**
+ * Initialize the application
+ * Creates the default admin user if not exists
+ */
+export function Init() {
+  // Create default admin user
+  const adminData = {
+    name: "Admin",
+    email: "root@yaoagents.com",
+    password: "Yao123++",
+    type: "admin",
+    status: "enabled",
+  };
+
+  try {
+    // Check if admin user already exists
+    const existingAdmin = Process("models.admin.user.Find", 1, {
+      select: ["id"],
+    });
+
+    if (!existingAdmin || !existingAdmin.id) {
+      // Create admin user
+      Process("models.admin.user.Save", adminData);
+      console.log("Default admin user created successfully");
+    } else {
+      console.log("Admin user already exists");
+    }
+  } catch (error) {
+    // If the model doesn't exist yet, try to create using direct insert
+    console.log("Creating admin user...");
+    try {
+      Process("models.admin.user.Save", adminData);
+      console.log("Default admin user created successfully");
+    } catch (e) {
+      console.log("Note: Admin user will be created on first login");
+    }
+  }
+}
+EOF
+msg_ok "Created Setup Script"
+
+msg_info "Creating Menu Script"
+cat <<'EOF' >/opt/yao/scripts/menu.ts
+import { Process } from "@yao/runtime";
+
+/**
+ * Get the menu for the admin panel
+ * @returns Menu structure
+ */
+export function Get() {
+  return {
+    items: [
+      {
+        name: "Dashboard",
+        path: "/mission-control",
+        icon: { name: "material-dashboard", size: 22 },
+      },
+      {
+        name: "Agents",
+        path: "/agents",
+        icon: { name: "material-smart_toy", size: 22 },
+      },
+      {
+        name: "Data",
+        path: "/data",
+        icon: { name: "material-storage", size: 22 },
+      },
+      {
+        name: "Settings",
+        path: "/settings",
+        icon: { name: "material-settings", size: 22 },
+      },
+    ],
+    setting: [
+      {
+        icon: { name: "material-person", size: 22 },
+        name: "Account",
+        path: "/account",
+      },
+    ],
+  };
+}
+EOF
+msg_ok "Created Menu Script"
+
 msg_info "Creating Public Web Interface"
-cat <<EOF >/opt/yao/public/index.html
+cat <<'EOF' >/opt/yao/public/index.html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -356,6 +417,22 @@ cat <<EOF >/opt/yao/public/index.html
       background: #00d4ff;
       color: #1a1a2e;
     }
+    .admin-link {
+      margin-top: 20px;
+      padding: 15px 30px;
+      background: linear-gradient(90deg, #7c3aed, #00d4ff);
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 1.1rem;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .admin-link:hover {
+      opacity: 0.9;
+      transform: translateY(-2px);
+    }
   </style>
 </head>
 <body>
@@ -368,8 +445,9 @@ cat <<EOF >/opt/yao/public/index.html
     </div>
     <div class="info">
       <p><strong>Port:</strong> 5099</p>
-      <p><strong>Studio Port:</strong> 5077</p>
+      <p><strong>Default Login:</strong> root@yaoagents.com / Yao123++</p>
     </div>
+    <a href="/dashboard/auth/entry" class="admin-link">Open Dashboard</a>
     <div class="links">
       <a href="https://github.com/YaoApp/yao" target="_blank">GitHub</a>
       <a href="https://yaoapps.com" target="_blank">Documentation</a>
@@ -379,6 +457,16 @@ cat <<EOF >/opt/yao/public/index.html
 </html>
 EOF
 msg_ok "Created Public Web Interface"
+
+msg_info "Running Database Migration"
+cd /opt/yao
+$STD yao migrate
+msg_ok "Database Migration Complete"
+
+msg_info "Creating Default Admin User"
+cd /opt/yao
+$STD yao run scripts.setup.Init || true
+msg_ok "Created Default Admin User"
 
 msg_info "Creating Service"
 cat <<EOF >/etc/systemd/system/yao.service
