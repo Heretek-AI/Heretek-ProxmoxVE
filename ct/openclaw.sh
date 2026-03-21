@@ -32,7 +32,8 @@ function update_script() {
   fi
 
   # Get current version
-  CURRENT_VERSION=$(su - openclaw -c "export PATH=/home/openclaw/.npm-global/bin:\$PATH && openclaw --version" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
+  # Using sudo -u since openclaw user has nologin shell
+  CURRENT_VERSION=$(sudo -u openclaw env PATH="/home/openclaw/.npm-global/bin:$PATH" openclaw --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
   
   # Get latest version from npm
   LATEST_VERSION=$(npm view openclaw version 2>/dev/null || echo "unknown")
@@ -50,7 +51,7 @@ function update_script() {
   msg_info "Updating OpenClaw from v${CURRENT_VERSION} to v${LATEST_VERSION}"
   
   msg_info "Stopping Gateway Service"
-  su - openclaw -c "systemctl --user stop openclaw-gateway" 2>/dev/null || true
+  sudo -u openclaw systemctl --user stop openclaw-gateway 2>/dev/null || true
   msg_ok "Stopped Gateway Service"
 
   msg_info "Backing up Configuration"
@@ -64,12 +65,12 @@ function update_script() {
   fi
 
   msg_info "Updating OpenClaw Package"
-  # Run npm update as the openclaw user, not root
-  su - openclaw -c "export PATH=/home/openclaw/.npm-global/bin:\$PATH && npm update -g openclaw" 2>/dev/null
+  # Run npm update as the openclaw user using sudo -u (nologin shell)
+  sudo -u openclaw env PATH="/home/openclaw/.npm-global/bin:$PATH" npm update -g openclaw 2>/dev/null
   msg_ok "Updated OpenClaw Package"
 
   msg_info "Verifying Update"
-  NEW_VERSION=$(su - openclaw -c "export PATH=/home/openclaw/.npm-global/bin:\$PATH && openclaw --version" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
+  NEW_VERSION=$(sudo -u openclaw env PATH="/home/openclaw/.npm-global/bin:$PATH" openclaw --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
   if [[ "$NEW_VERSION" == "$LATEST_VERSION" ]]; then
     msg_ok "Verified OpenClaw v${NEW_VERSION}"
   else
@@ -77,18 +78,18 @@ function update_script() {
   fi
 
   msg_info "Starting Gateway Service"
-  su - openclaw -c "systemctl --user start openclaw-gateway" 2>/dev/null || true
+  sudo -u openclaw systemctl --user start openclaw-gateway 2>/dev/null || true
   
   # Wait for service to start
   sleep 3
   
   # Check if service is running
-  if su - openclaw -c "systemctl --user is-active openclaw-gateway" 2>/dev/null | grep -q "active"; then
+  if sudo -u openclaw systemctl --user is-active openclaw-gateway 2>/dev/null | grep -q "active"; then
     msg_ok "Gateway Service Started"
   else
     msg_warn "Gateway Service may not have started properly"
     msg_info "Checking service status..."
-    su - openclaw -c "systemctl --user status openclaw-gateway" 2>/dev/null || true
+    sudo -u openclaw systemctl --user status openclaw-gateway 2>/dev/null || true
   fi
   
   msg_ok "Updated successfully to v${LATEST_VERSION}!"
@@ -98,15 +99,15 @@ function update_script() {
   echo "  Post-Update Verification"
   echo "═══════════════════════════════════════════════════════════════════════════════"
   echo ""
+  echo "  Note: The openclaw user has no login shell. Use 'sudo -u openclaw' to run commands."
+  echo ""
   echo "  Run these commands to verify the update:"
-  echo "    su - openclaw"
-  echo "    openclaw --version"
-  echo "    openclaw doctor"
-  echo "    openclaw gateway status"
+  echo "    sudo -u openclaw openclaw --version"
+  echo "    sudo -u openclaw openclaw doctor"
+  echo "    sudo -u openclaw openclaw gateway status"
   echo ""
   echo "  View logs if issues occur:"
-  echo "    su - openclaw"
-  echo "    openclaw logs --follow"
+  echo "    sudo -u openclaw openclaw logs --follow"
   echo ""
   echo "  Backup saved to: $BACKUP_DIR"
   echo ""

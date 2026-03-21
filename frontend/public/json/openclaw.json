@@ -89,6 +89,14 @@
     {
       "text": "Auth token is displayed during installation - save it for pairing devices",
       "type": "warning"
+    },
+    {
+      "text": "Homebrew is installed automatically - use 'sudo -u openclaw brew install <package>' to install additional tools",
+      "type": "info"
+    },
+    {
+      "text": "The openclaw user has no login shell - use 'sudo -u openclaw <command>' to run commands",
+      "type": "warning"
     }
   ]
 }

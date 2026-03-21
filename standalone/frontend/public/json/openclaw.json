@@ -43,7 +43,7 @@
       "type": "info"
     },
     {
-      "text": "Requires Node.js 22+ (installed automatically)",
+      "text": "Requires Node.js 24 (installed automatically)",
       "type": "info"
     },
     {
@@ -59,12 +59,44 @@
       "type": "info"
     },
     {
-      "text": "Supports OpenAI, Anthropic, and other AI providers - API keys required",
+      "text": "CRITICAL: A model provider MUST be configured after installation (Ollama, OpenAI, Anthropic, etc.)",
       "type": "warning"
     },
     {
-      "text": "Can work with local models via Ollama for offline operation",
+      "text": "To configure a model provider: su - openclaw && openclaw models auth add --provider <provider>",
       "type": "info"
+    },
+    {
+      "text": "For local/offline use: Install Ollama and run 'ollama pull llama3.2' then 'ollama pull nomic-embed-text'",
+      "type": "info"
+    },
+    {
+      "text": "Memory search requires embedding provider (Ollama, OpenAI, Gemini, Voyage, or local model)",
+      "type": "warning"
+    },
+    {
+      "text": "To configure channels (Telegram, Discord, WhatsApp, etc.): su - openclaw && openclaw channels add --channel <name>",
+      "type": "info"
+    },
+    {
+      "text": "Verify installation: su - openclaw && openclaw doctor && openclaw gateway status",
+      "type": "info"
+    },
+    {
+      "text": "View logs: su - openclaw && openclaw logs --follow",
+      "type": "info"
+    },
+    {
+      "text": "Auth token is displayed during installation - save it for pairing devices",
+      "type": "warning"
+    },
+    {
+      "text": "Homebrew is installed automatically - use 'sudo -u openclaw brew install <package>' to install additional tools",
+      "type": "info"
+    },
+    {
+      "text": "The openclaw user has no login shell - use 'sudo -u openclaw <command>' to run commands",
+      "type": "warning"
     }
   ]
 }

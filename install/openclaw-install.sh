@@ -45,29 +45,61 @@ NODE_VERSION="24" setup_nodejs
 # Install uv (Python package manager) - OpenClaw uses Python for some tools
 PYTHON_VERSION="3.12" setup_uv
 
-# Create unprivileged user for OpenClaw
+# Create unprivileged user for OpenClaw (with nologin shell for security)
 msg_info "Creating OpenClaw User"
 if ! id -u openclaw &>/dev/null; then
-  useradd -r -s /bin/bash -d /home/openclaw -m openclaw
-  # Add openclaw to sudoers for specific operations if needed
-  usermod -aG sudo openclaw 2>/dev/null || true
+  # Create user with nologin shell to prevent direct login
+  useradd -r -s /usr/sbin/nologin -d /home/openclaw -m openclaw
 fi
 msg_ok "Created OpenClaw User"
+
+# Configure password-less sudo for openclaw user
+msg_info "Configuring Password-less Sudo for OpenClaw User"
+cat <<EOF >/etc/sudoers.d/openclaw
+# Allow openclaw user to run any command without password
+openclaw ALL=(ALL) NOPASSWD: ALL
+EOF
+chmod 440 /etc/sudoers.d/openclaw
+msg_ok "Configured Password-less Sudo"
 
 # Configure npm to use user-writable directory for global packages
 msg_info "Configuring npm for User Packages"
 mkdir -p /home/openclaw/.npm-global
 chown -R openclaw:openclaw /home/openclaw/.npm-global
 # Set npm prefix for openclaw user to use home directory
-run_user_cmd="su - openclaw -c"
-$run_user_cmd "npm config set prefix /home/openclaw/.npm-global"
+# Using sudo -u since openclaw user has nologin shell
+sudo -u openclaw npm config set prefix /home/openclaw/.npm-global
 # Add to PATH for openclaw user
 echo 'export PATH=/home/openclaw/.npm-global/bin:$PATH' >> /home/openclaw/.bashrc
 msg_ok "Configured npm for User Packages"
 
+# Install Homebrew for the openclaw user
+msg_info "Installing Homebrew"
+# Create Homebrew directory structure
+mkdir -p /home/linuxbrew/.linuxbrew
+chown -R openclaw:openclaw /home/linuxbrew 2>/dev/null || true
+
+# Download Homebrew installer
+curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o /tmp/brew-install.sh
+
+# Run installer non-interactively as openclaw user
+# CI=1 and NONINTERACTIVE=1 enable fully automated installation
+# Using sudo -u since openclaw user has nologin shell
+CI=1 NONINTERACTIVE=1 sudo -u openclaw bash /tmp/brew-install.sh || true
+rm -f /tmp/brew-install.sh
+
+# Add Homebrew to PATH for openclaw user
+if [[ -f /home/linuxbrew/.linuxbrew/bin/brew ]]; then
+  echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"' >> /home/openclaw/.bashrc
+  msg_ok "Installed Homebrew"
+else
+  msg_warn "Homebrew installation may have failed - check logs"
+fi
+
 msg_info "Installing OpenClaw"
 # Install OpenClaw globally as the openclaw user
-$run_user_cmd "npm install -g openclaw@latest"
+# Using sudo -u since openclaw user has nologin shell
+sudo -u openclaw npm install -g openclaw@latest
 msg_ok "Installed OpenClaw"
 
 msg_info "Creating Directories"
@@ -184,7 +216,8 @@ export PATH="/home/openclaw/.npm-global/bin:$PATH"
 export OPENCLAW_CONFIG_PATH="/home/openclaw/.openclaw/openclaw.json"
 
 # Install the gateway service using the recommended method
-$run_user_cmd "export PATH=/home/openclaw/.npm-global/bin:\$PATH && openclaw gateway install" 2>/dev/null || true
+# Using sudo -u since openclaw user has nologin shell
+sudo -u openclaw env PATH="/home/openclaw/.npm-global/bin:$PATH" openclaw gateway install 2>/dev/null || true
 
 # If the service wasn't created, create it manually
 if [[ ! -f /home/openclaw/.config/systemd/user/openclaw-gateway.service ]]; then
@@ -220,8 +253,9 @@ msg_ok "Started Caddy HTTPS Proxy"
 
 msg_info "Starting OpenClaw Gateway"
 # Start the gateway service as the openclaw user
-$run_user_cmd "systemctl --user enable openclaw-gateway" 2>/dev/null || true
-$run_user_cmd "systemctl --user start openclaw-gateway" 2>/dev/null || true
+# Using sudo -u since openclaw user has nologin shell
+sudo -u openclaw systemctl --user enable openclaw-gateway 2>/dev/null || true
+sudo -u openclaw systemctl --user start openclaw-gateway 2>/dev/null || true
 msg_ok "Started OpenClaw Gateway"
 
 # Wait for gateway to be ready
@@ -229,10 +263,10 @@ msg_info "Verifying Installation"
 sleep 5
 
 # Check if gateway is running
-if $run_user_cmd "systemctl --user is-active openclaw-gateway" 2>/dev/null | grep -q "active"; then
+if sudo -u openclaw systemctl --user is-active openclaw-gateway 2>/dev/null | grep -q "active"; then
   msg_ok "Gateway Service is Active"
 else
-  msg_warn "Gateway Service may not be running - check logs with: su - openclaw -c 'journalctl --user -u openclaw-gateway'"
+  msg_warn "Gateway Service may not be running - check logs with: sudo -u openclaw journalctl --user -u openclaw-gateway"
 fi
 
 # Display auth token for pairing
@@ -250,6 +284,8 @@ echo "═══════���══════════════�
 echo "  Next Steps:"
 echo "═══════════════════════════════════════════════════════════════════════════════"
 echo ""
+echo "  Note: The openclaw user has no login shell. Use 'sudo -u openclaw' to run commands."
+echo ""
 echo "  1. Configure a Model Provider (REQUIRED for OpenClaw to function):"
 echo ""
 echo "     Option A - Ollama (Local, Free):"
@@ -257,34 +293,28 @@ echo "       • Install Ollama: curl -fsSL https://ollama.com/install.sh | sh"
 echo "       • Pull a model: ollama pull llama3.2"
 echo "       • Pull embedding model: ollama pull nomic-embed-text"
 echo "       • Configure OpenClaw:"
-echo "         su - openclaw"
-echo "         openclaw configure"
+echo "         sudo -u openclaw openclaw configure"
 echo "         # Select Ollama as provider"
 echo ""
 echo "     Option B - OpenAI API:"
-echo "       su - openclaw"
-echo "       openclaw models auth add --provider openai"
+echo "       sudo -u openclaw openclaw models auth add --provider openai"
 echo "       # Enter your API key when prompted"
 echo ""
 echo "     Option C - Anthropic Claude:"
-echo "       su - openclaw"
-echo "       openclaw models auth add --provider anthropic"
+echo "       sudo -u openclaw openclaw models auth add --provider anthropic"
 echo "       # Enter your API key when prompted"
 echo ""
 echo "  2. Configure Channels (Optional - for messaging):"
-echo "     su - openclaw"
-echo "     openclaw channels add --channel telegram --token YOUR_BOT_TOKEN"
-echo "     openclaw channels add --channel discord --token YOUR_BOT_TOKEN"
+echo "     sudo -u openclaw openclaw channels add --channel telegram --token YOUR_BOT_TOKEN"
+echo "     sudo -u openclaw openclaw channels add --channel discord --token YOUR_BOT_TOKEN"
 echo ""
 echo "  3. Verify Installation:"
-echo "     su - openclaw"
-echo "     openclaw doctor"
-echo "     openclaw gateway status"
-echo "     openclaw models status"
+echo "     sudo -u openclaw openclaw doctor"
+echo "     sudo -u openclaw openclaw gateway status"
+echo "     sudo -u openclaw openclaw models status"
 echo ""
 echo "  4. View Logs:"
-echo "     su - openclaw"
-echo "     openclaw logs --follow"
+echo "     sudo -u openclaw openclaw logs --follow"
 echo ""
 echo "═══════════════════════════════════════════════════════════════════════════════"
 echo "  Memory Search Configuration"

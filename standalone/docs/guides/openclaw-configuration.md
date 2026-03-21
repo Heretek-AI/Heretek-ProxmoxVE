@@ -1,5 +1,315 @@
 # OpenClaw Configuration Guide
 
+## Quick Start
+
+After installation, OpenClaw requires a **model provider** to function. This is the most critical configuration step.
+
+### Essential Commands
+
+**Note:** The `openclaw` user has no login shell for security. Use `sudo -u openclaw` to run commands.
+
+```bash
+# Verify installation
+sudo -u openclaw openclaw --version
+sudo -u openclaw openclaw doctor
+sudo -u openclaw openclaw gateway status
+
+# View logs
+sudo -u openclaw openclaw logs --follow
+```
+
+---
+
+## Model Provider Configuration (REQUIRED)
+
+OpenClaw requires a model provider to process messages. Choose one of the following options:
+
+### Option A: Ollama (Local, Free, Recommended for Offline)
+
+Ollama runs models locally on your hardware - no API costs, complete privacy.
+
+#### 1. Install Ollama
+
+```bash
+# On the OpenClaw container or a separate server
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+#### 2. Pull Required Models
+
+```bash
+# Chat model (choose one)
+ollama pull llama3.2          # Good balance (recommended)
+ollama pull llama3.1:8b       # Larger, more capable
+ollama pull mistral           # Alternative option
+ollama pull gemma2            # Google's model
+
+# Embedding model (required for memory search)
+ollama pull nomic-embed-text  # Recommended (274MB)
+ollama pull mxbai-embed-large # Higher quality (670MB)
+ollama pull all-minilm        # Smallest, fastest (45MB)
+```
+
+#### 3. Configure OpenClaw for Ollama
+
+```bash
+sudo -u openclaw openclaw configure
+# Select "Ollama" when prompted for model provider
+# Enter Ollama URL (default: http://localhost:11434)
+```
+
+Or manually edit `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "ollama:llama3.2"
+      },
+      "memorySearch": {
+        "provider": "ollama",
+        "model": "nomic-embed-text",
+        "remote": {
+          "baseUrl": "http://localhost:11434"
+        }
+      }
+    }
+  }
+}
+```
+
+#### 4. Ollama on a Separate Server
+
+If Ollama runs on a different machine:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "ollama:llama3.2"
+      },
+      "memorySearch": {
+        "provider": "ollama",
+        "model": "nomic-embed-text",
+        "remote": {
+          "baseUrl": "http://192.168.1.100:11434"
+        }
+      }
+    }
+  }
+}
+```
+
+### Option B: OpenAI API
+
+```bash
+sudo -u openclaw openclaw models auth add --provider openai
+# Enter your API key when prompted
+
+# Set as default model
+sudo -u openclaw openclaw models set openai:gpt-4o
+```
+
+Manual configuration:
+
+```json
+{
+  "secrets": {
+    "providers": {
+      "openai-api": {
+        "source": "env",
+        "env": "OPENAI_API_KEY"
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "openai:gpt-4o"
+      }
+    }
+  }
+}
+```
+
+### Option C: Anthropic Claude
+
+```bash
+sudo -u openclaw openclaw models auth add --provider anthropic
+# Enter your API key when prompted
+
+# Set as default model
+sudo -u openclaw openclaw models set anthropic:claude-opus-4-6
+```
+
+### Option D: Other Providers
+
+OpenClaw supports many providers:
+
+| Provider      | Command                                          |
+| ------------- | ------------------------------------------------ |
+| Google Gemini | `openclaw models auth add --provider google`     |
+| Mistral       | `openclaw models auth add --provider mistral`    |
+| OpenRouter    | `openclaw models auth add --provider openrouter` |
+| Groq          | `openclaw models auth add --provider groq`       |
+| xAI           | `openclaw models auth add --provider xai`        |
+| Together AI   | `openclaw models auth add --provider together`   |
+
+### Verify Model Configuration
+
+```bash
+# Check model status
+openclaw models status
+
+# Test with a message
+openclaw agent --message "Hello, are you working?" --local
+```
+
+---
+
+## Channel Configuration
+
+OpenClaw supports multiple messaging channels. Configure channels to interact through your preferred platform.
+
+### Supported Channels
+
+| Channel         | Type          | Setup Method                    |
+| --------------- | ------------- | ------------------------------- |
+| Telegram        | Bot API       | Bot token from @BotFather       |
+| Discord         | Bot API       | Bot token from Developer Portal |
+| WhatsApp        | Baileys       | QR code pairing                 |
+| Slack           | Bolt SDK      | App credentials                 |
+| Signal          | signal-cli    | Phone number pairing            |
+| Matrix          | Plugin        | Homeserver config               |
+| iMessage        | BlueBubbles   | macOS server required           |
+| Microsoft Teams | Bot Framework | App registration                |
+| IRC             | Native        | Server connection               |
+| Google Chat     | Webhook       | App configuration               |
+
+### Telegram Setup (Easiest)
+
+1. **Create a bot** by messaging [@BotFather](https://t.me/BotFather) on Telegram
+2. **Get your bot token** (format: `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`)
+3. **Configure OpenClaw**:
+
+```bash
+sudo -u openclaw openclaw channels add --channel telegram --token "YOUR_BOT_TOKEN"
+```
+
+4. **Start messaging** your bot on Telegram
+
+### Discord Setup
+
+1. **Create a bot** at [Discord Developer Portal](https://discord.com/developers/applications)
+2. **Get your bot token** from the Bot section
+3. **Invite bot to server** using OAuth2 URL generator
+4. **Configure OpenClaw**:
+
+```bash
+sudo -u openclaw openclaw channels add --channel discord --token "YOUR_BOT_TOKEN"
+```
+
+### WhatsApp Setup
+
+WhatsApp requires QR code pairing:
+
+```bash
+sudo -u openclaw openclaw channels add --channel whatsapp
+# A QR code will be displayed
+# Scan with WhatsApp on your phone (Settings > Linked Devices)
+```
+
+### Multiple Accounts
+
+You can configure multiple accounts per channel:
+
+```bash
+# Add a second Telegram account
+openclaw channels add --channel telegram --account work --name "Work Bot" --token "WORK_BOT_TOKEN"
+
+# List all channels
+openclaw channels list
+
+# Check channel status
+openclaw channels status --probe
+```
+
+### Channel Routing
+
+Route different channels to different agents:
+
+```bash
+# Create an agent
+openclaw agents add --workspace ~/.openclaw-workspaces/work
+
+# Bind channels to agent
+openclaw agents bind --agent <agent-id> --bind telegram:work
+openclaw agents bind --agent <agent-id> --bind discord:main
+```
+
+---
+
+## Memory Configuration
+
+OpenClaw's memory search requires an embedding provider to index and search through your memory files.
+
+### Memory Files Location
+
+Memory files are stored in `~/.openclaw/workspace/memory/`:
+
+```bash
+# Create memory directory
+mkdir -p ~/.openclaw/workspace/memory
+
+# Create your first memory file
+cat > ~/.openclaw/workspace/MEMORY.md << 'EOF'
+# Personal Memory
+
+## Preferences
+- I prefer concise responses
+- Use bullet points for lists
+
+## Projects
+- Home automation: running on Proxmox
+- Media server: Jellyfin on port 8096
+EOF
+```
+
+### Configure Memory Search
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "memorySearch": {
+        "provider": "ollama",
+        "model": "nomic-embed-text",
+        "remote": {
+          "baseUrl": "http://localhost:11434"
+        }
+      }
+    }
+  }
+}
+```
+
+### Memory Commands
+
+```bash
+# Check memory status
+openclaw memory status
+
+# Reindex memory files
+openclaw memory index
+
+# Search memory
+openclaw memory search "project details"
+```
+
+---
+
 ## "Device Identity Required" Error Fix
 
 If you see this error when accessing the Control UI from another machine:
@@ -43,7 +353,6 @@ nano ~/.openclaw/openclaw.json
       "allowInsecureAuth": true
     },
     "auth": {
-      "mode": "token",
       "token": "your-secure-token-here"
     }
   }
@@ -64,7 +373,7 @@ su - openclaw -c "systemctl --user restart openclaw-gateway"
 
 ### Solution 3: HTTPS Reverse Proxy (Production)
 
-Set up Caddy or Nginx with SSL certificates for secure HTTPS access.
+The installation includes Caddy for HTTPS access on port 18790.
 
 ### Solution 4: Tailscale VPN
 
@@ -86,6 +395,8 @@ For emergency access only, you can completely disable device auth:
 
 **⚠️ WARNING:** This is a severe security downgrade. Revert immediately after emergency use.
 
+---
+
 ## "Origin Not Allowed" Error Fix
 
 If you see this error when accessing the Control UI from another machine:
@@ -101,8 +412,8 @@ origin not allowed (open the Control UI from the gateway host or allow it in gat
 CONTAINER_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -1)
 
 # Create configuration with allowed origins
-mkdir -p ~/.openclaw
-cat > ~/.openclaw/openclaw.json << EOF
+sudo -u openclaw mkdir -p /home/openclaw/.openclaw
+sudo -u openclaw tee /home/openclaw/.openclaw/openclaw.json > /dev/null << EOF
 {
   "gateway": {
     "bind": "lan",
@@ -119,10 +430,12 @@ cat > ~/.openclaw/openclaw.json << EOF
 EOF
 
 # Apply and restart
-su - openclaw -c "systemctl --user restart openclaw-gateway"
+sudo -u openclaw systemctl --user restart openclaw-gateway
 ```
 
 **Note:** Even with `allowedOrigins` configured, you still need a secure context (HTTPS or localhost) for the device identity requirement. Use SSH tunneling for LAN access.
+
+---
 
 ## Network Binding Configuration
 
@@ -144,11 +457,11 @@ By default, OpenClaw binds to localhost (127.0.0.1) only. To make it accessible 
 
 ```bash
 # Open the gateway configuration
-openclaw configure --section gateway
+sudo -u openclaw openclaw configure --section gateway
 
 # Set bind to "lan" when prompted
 # Then restart the service
-su - openclaw -c "systemctl --user restart openclaw-gateway"
+sudo -u openclaw systemctl --user restart openclaw-gateway
 ```
 
 ### Method 2: Manual Configuration
@@ -156,9 +469,8 @@ su - openclaw -c "systemctl --user restart openclaw-gateway"
 Edit the configuration file:
 
 ```bash
-# Edit as the openclaw user
-su - openclaw
-nano ~/.openclaw/openclaw.json
+# Edit the configuration file
+nano /home/openclaw/.openclaw/openclaw.json
 ```
 
 Add the configuration with your IP:
@@ -178,7 +490,7 @@ Add the configuration with your IP:
 Apply changes:
 
 ```bash
-systemctl --user restart openclaw-gateway
+sudo -u openclaw systemctl --user restart openclaw-gateway
 ```
 
 ### Method 3: Quick Fix for Existing Installations
@@ -189,26 +501,26 @@ For existing installations, run these commands:
 # Get your container IP
 CONTAINER_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -1)
 
-# Create configuration with allowed origins (as openclaw user)
-su - openclaw -c "mkdir -p ~/.openclaw"
-su - openclaw -c "cat > ~/.openclaw/openclaw.json << EOF
+# Create configuration with allowed origins
+sudo -u openclaw mkdir -p /home/openclaw/.openclaw
+sudo -u openclaw tee /home/openclaw/.openclaw/openclaw.json > /dev/null << EOF
 {
-  \"gateway\": {
-    \"bind\": \"lan\",
-    \"port\": 18789,
-    \"controlUi\": {
-      \"allowedOrigins\": [
-        \"http://localhost:18789\",
-        \"http://127.0.0.1:18789\",
-        \"http://${CONTAINER_IP}:18789\"
+  "gateway": {
+    "bind": "lan",
+    "port": 18789,
+    "controlUi": {
+      "allowedOrigins": [
+        "http://localhost:18789",
+        "http://127.0.0.1:18789",
+        "http://${CONTAINER_IP}:18789"
       ]
     }
   }
 }
-EOF"
+EOF
 
 # Restart the service
-su - openclaw -c "systemctl --user restart openclaw-gateway"
+sudo -u openclaw systemctl --user restart openclaw-gateway
 ```
 
 ### Method 4: Environment Variable
@@ -225,7 +537,7 @@ OPENCLAW_BIND=lan
 Check the current binding:
 
 ```bash
-openclaw gateway status
+sudo -u openclaw openclaw gateway status
 ```
 
 Output should show:
@@ -284,9 +596,9 @@ http://localhost:18789
 2. Set OpenClaw bind to `tailnet`:
 
    ```bash
-   openclaw configure --section gateway
+   sudo -u openclaw openclaw configure --section gateway
    # Set bind to "tailnet"
-   su - openclaw -c "systemctl --user restart openclaw-gateway"
+   sudo -u openclaw systemctl --user restart openclaw-gateway
    ```
 
 3. Access via Tailscale IP: `http://<tailscale-ip>:18789`
@@ -296,8 +608,8 @@ http://localhost:18789
 ### Gateway Not Starting
 
 ```bash
-# Check logs (as openclaw user)
-su - openclaw -c "journalctl --user -u openclaw-gateway -f"
+# Check logs
+sudo -u openclaw journalctl --user -u openclaw-gateway -f
 
 # Or from root
 journalctl --user -u openclaw-gateway -f --user-unit
@@ -305,83 +617,147 @@ journalctl --user -u openclaw-gateway -f --user-unit
 # Common issues:
 # - Port already in use: lsof -i :18789
 # - Permission denied: ensure running as correct user
+# - Config errors: sudo -u openclaw openclaw doctor
 ```
 
 ### Cannot Connect from Remote
 
-1. Verify binding: `openclaw gateway status` should show `0.0.0.0:18789`
+1. Verify binding: `sudo -u openclaw openclaw gateway status` should show `0.0.0.0:18789`
 2. Check firewall: `ufw status` or `iptables -L -n`
 3. Verify network connectivity: `ping <server-ip>`
 
 ### Token Authentication Issues
 
 ```bash
-# Regenerate token
-openclaw doctor --generate-gateway-token
-
 # View current token
-openclaw gateway status
+sudo -u openclaw openclaw gateway status
+
+# Regenerate token (if needed)
+sudo -u openclaw openclaw doctor --generate-gateway-token
 ```
 
-## Installing Homebrew (Optional)
-
-If you need to install additional tools via Homebrew, follow these steps:
-
-### Prerequisites
-
-The `openclaw` user needs sudo access and a password set. By default, the user is created without a password.
-
-### Step 1: Set Password for openclaw User
-
-As root, set a password for the openclaw user:
+### Model Provider Issues
 
 ```bash
-passwd openclaw
-# Enter and confirm the new password
+# Check model status
+sudo -u openclaw openclaw models status
+
+# Probe providers (may consume tokens)
+sudo -u openclaw openclaw models status --probe
+
+# Set default model
+sudo -u openclaw openclaw models set <provider:model>
+
+# Example:
+sudo -u openclaw openclaw models set ollama:llama3.2
+sudo -u openclaw openclaw models set openai:gpt-4o
 ```
 
-### Step 2: Install Homebrew
-
-Switch to the openclaw user and run the installer:
+### Channel Issues
 
 ```bash
-su - openclaw
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+# Check channel status
+sudo -u openclaw openclaw channels status --probe
+
+# View channel logs
+sudo -u openclaw openclaw channels logs --channel telegram
+
+# Re-login to a channel
+sudo -u openclaw openclaw channels login --channel whatsapp
 ```
 
-When prompted:
+## Using Homebrew
 
-1. Enter the openclaw password for sudo access
-2. Press ENTER to continue when the installer shows the directories it will create
+Homebrew is installed automatically during the OpenClaw installation. It provides access to additional packages that may be useful for extending OpenClaw functionality.
 
-### Step 3: Add Homebrew to PATH
-
-After installation, add Homebrew to your shell:
+### Verify Installation
 
 ```bash
-echo >> /home/openclaw/.bashrc
-echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"' >> /home/openclaw/.bashrc
-eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"
-```
-
-### Step 4: Verify Installation
-
-```bash
-brew --version
+sudo -u openclaw brew --version
 ```
 
 ### Installing Packages
 
-Once Homebrew is installed, you can install packages:
+Once Homebrew is installed, you can install additional packages:
 
 ```bash
 brew install <package-name>
 ```
 
+### Common Useful Packages
+
+```bash
+# Example: Install additional tools
+brew install jq          # JSON processor
+brew install yq          # YAML processor
+brew install git-delta   # Better git diff viewer
+```
+
 **Note:** Homebrew packages are installed to `/home/linuxbrew/.linuxbrew/` and are available to all users on the system.
+
+### Troubleshooting Homebrew
+
+If Homebrew is not working correctly:
+
+```bash
+# Check if Homebrew is in PATH
+which brew
+
+# If not, add it manually
+eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"
+
+# Add to .bashrc permanently
+echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"' >> ~/.bashrc
+```
+
+---
+
+## Embedding Model Comparison
+
+| Model             | Size   | Quality | Speed   | Use Case                      |
+| ----------------- | ------ | ------- | ------- | ----------------------------- |
+| nomic-embed-text  | ~274MB | Good    | Fast    | General purpose (recommended) |
+| mxbai-embed-large | ~670MB | Better  | Medium  | Higher accuracy needed        |
+| all-minilm        | ~45MB  | Basic   | Fastest | Resource-constrained          |
+
+---
+
+## Hybrid Search (BM25 + Vector)
+
+Enable hybrid search for better recall:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "memorySearch": {
+        "provider": "ollama",
+        "model": "nomic-embed-text",
+        "remote": {
+          "baseUrl": "http://localhost:11434"
+        },
+        "query": {
+          "hybrid": {
+            "enabled": true,
+            "vectorWeight": 0.7,
+            "textWeight": 0.3
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+---
 
 ## Additional Resources
 
 - [OpenClaw Gateway Documentation](https://docs.openclaw.ai/gateway)
 - [OpenClaw Security Guide](https://docs.openclaw.ai/gateway/security)
 - [OpenClaw Troubleshooting](https://docs.openclaw.ai/gateway/troubleshooting)
+- [OpenClaw Memory Configuration Reference](https://docs.openclaw.ai/reference/memory-config)
+- [OpenClaw CLI Reference](https://docs.openclaw.ai/cli)
+- [OpenClaw Channels](https://docs.openclaw.ai/channels)
+- [OpenClaw Model Providers](https://docs.openclaw.ai/providers)
+- [Ollama Documentation](https://ollama.com/docs)

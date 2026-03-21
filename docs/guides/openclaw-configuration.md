@@ -6,17 +6,16 @@ After installation, OpenClaw requires a **model provider** to function. This is 
 
 ### Essential Commands
 
-```bash
-# Switch to openclaw user
-su - openclaw
+**Note:** The `openclaw` user has no login shell for security. Use `sudo -u openclaw` to run commands.
 
+```bash
 # Verify installation
-openclaw --version
-openclaw doctor
-openclaw gateway status
+sudo -u openclaw openclaw --version
+sudo -u openclaw openclaw doctor
+sudo -u openclaw openclaw gateway status
 
 # View logs
-openclaw logs --follow
+sudo -u openclaw openclaw logs --follow
 ```
 
 ---
@@ -54,8 +53,7 @@ ollama pull all-minilm        # Smallest, fastest (45MB)
 #### 3. Configure OpenClaw for Ollama
 
 ```bash
-su - openclaw
-openclaw configure
+sudo -u openclaw openclaw configure
 # Select "Ollama" when prompted for model provider
 # Enter Ollama URL (default: http://localhost:11434)
 ```
@@ -107,12 +105,11 @@ If Ollama runs on a different machine:
 ### Option B: OpenAI API
 
 ```bash
-su - openclaw
-openclaw models auth add --provider openai
+sudo -u openclaw openclaw models auth add --provider openai
 # Enter your API key when prompted
 
 # Set as default model
-openclaw models set openai:gpt-4o
+sudo -u openclaw openclaw models set openai:gpt-4o
 ```
 
 Manual configuration:
@@ -140,12 +137,11 @@ Manual configuration:
 ### Option C: Anthropic Claude
 
 ```bash
-su - openclaw
-openclaw models auth add --provider anthropic
+sudo -u openclaw openclaw models auth add --provider anthropic
 # Enter your API key when prompted
 
 # Set as default model
-openclaw models set anthropic:claude-opus-4-6
+sudo -u openclaw openclaw models set anthropic:claude-opus-4-6
 ```
 
 ### Option D: Other Providers
@@ -199,8 +195,7 @@ OpenClaw supports multiple messaging channels. Configure channels to interact th
 3. **Configure OpenClaw**:
 
 ```bash
-su - openclaw
-openclaw channels add --channel telegram --token "YOUR_BOT_TOKEN"
+sudo -u openclaw openclaw channels add --channel telegram --token "YOUR_BOT_TOKEN"
 ```
 
 4. **Start messaging** your bot on Telegram
@@ -213,8 +208,7 @@ openclaw channels add --channel telegram --token "YOUR_BOT_TOKEN"
 4. **Configure OpenClaw**:
 
 ```bash
-su - openclaw
-openclaw channels add --channel discord --token "YOUR_BOT_TOKEN"
+sudo -u openclaw openclaw channels add --channel discord --token "YOUR_BOT_TOKEN"
 ```
 
 ### WhatsApp Setup
@@ -222,8 +216,7 @@ openclaw channels add --channel discord --token "YOUR_BOT_TOKEN"
 WhatsApp requires QR code pairing:
 
 ```bash
-su - openclaw
-openclaw channels add --channel whatsapp
+sudo -u openclaw openclaw channels add --channel whatsapp
 # A QR code will be displayed
 # Scan with WhatsApp on your phone (Settings > Linked Devices)
 ```
@@ -419,8 +412,8 @@ origin not allowed (open the Control UI from the gateway host or allow it in gat
 CONTAINER_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -1)
 
 # Create configuration with allowed origins
-mkdir -p ~/.openclaw
-cat > ~/.openclaw/openclaw.json << EOF
+sudo -u openclaw mkdir -p /home/openclaw/.openclaw
+sudo -u openclaw tee /home/openclaw/.openclaw/openclaw.json > /dev/null << EOF
 {
   "gateway": {
     "bind": "lan",
@@ -437,7 +430,7 @@ cat > ~/.openclaw/openclaw.json << EOF
 EOF
 
 # Apply and restart
-su - openclaw -c "systemctl --user restart openclaw-gateway"
+sudo -u openclaw systemctl --user restart openclaw-gateway
 ```
 
 **Note:** Even with `allowedOrigins` configured, you still need a secure context (HTTPS or localhost) for the device identity requirement. Use SSH tunneling for LAN access.
@@ -464,11 +457,11 @@ By default, OpenClaw binds to localhost (127.0.0.1) only. To make it accessible 
 
 ```bash
 # Open the gateway configuration
-openclaw configure --section gateway
+sudo -u openclaw openclaw configure --section gateway
 
 # Set bind to "lan" when prompted
 # Then restart the service
-su - openclaw -c "systemctl --user restart openclaw-gateway"
+sudo -u openclaw systemctl --user restart openclaw-gateway
 ```
 
 ### Method 2: Manual Configuration
@@ -476,9 +469,8 @@ su - openclaw -c "systemctl --user restart openclaw-gateway"
 Edit the configuration file:
 
 ```bash
-# Edit as the openclaw user
-su - openclaw
-nano ~/.openclaw/openclaw.json
+# Edit the configuration file
+nano /home/openclaw/.openclaw/openclaw.json
 ```
 
 Add the configuration with your IP:
@@ -498,7 +490,7 @@ Add the configuration with your IP:
 Apply changes:
 
 ```bash
-systemctl --user restart openclaw-gateway
+sudo -u openclaw systemctl --user restart openclaw-gateway
 ```
 
 ### Method 3: Quick Fix for Existing Installations
@@ -509,26 +501,26 @@ For existing installations, run these commands:
 # Get your container IP
 CONTAINER_IP=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -1)
 
-# Create configuration with allowed origins (as openclaw user)
-su - openclaw -c "mkdir -p ~/.openclaw"
-su - openclaw -c "cat > ~/.openclaw/openclaw.json << EOF
+# Create configuration with allowed origins
+sudo -u openclaw mkdir -p /home/openclaw/.openclaw
+sudo -u openclaw tee /home/openclaw/.openclaw/openclaw.json > /dev/null << EOF
 {
-  \"gateway\": {
-    \"bind\": \"lan\",
-    \"port\": 18789,
-    \"controlUi\": {
-      \"allowedOrigins\": [
-        \"http://localhost:18789\",
-        \"http://127.0.0.1:18789\",
-        \"http://${CONTAINER_IP}:18789\"
+  "gateway": {
+    "bind": "lan",
+    "port": 18789,
+    "controlUi": {
+      "allowedOrigins": [
+        "http://localhost:18789",
+        "http://127.0.0.1:18789",
+        "http://${CONTAINER_IP}:18789"
       ]
     }
   }
 }
-EOF"
+EOF
 
 # Restart the service
-su - openclaw -c "systemctl --user restart openclaw-gateway"
+sudo -u openclaw systemctl --user restart openclaw-gateway
 ```
 
 ### Method 4: Environment Variable
@@ -545,7 +537,7 @@ OPENCLAW_BIND=lan
 Check the current binding:
 
 ```bash
-openclaw gateway status
+sudo -u openclaw openclaw gateway status
 ```
 
 Output should show:
@@ -604,9 +596,9 @@ http://localhost:18789
 2. Set OpenClaw bind to `tailnet`:
 
    ```bash
-   openclaw configure --section gateway
+   sudo -u openclaw openclaw configure --section gateway
    # Set bind to "tailnet"
-   su - openclaw -c "systemctl --user restart openclaw-gateway"
+   sudo -u openclaw systemctl --user restart openclaw-gateway
    ```
 
 3. Access via Tailscale IP: `http://<tailscale-ip>:18789`
@@ -616,8 +608,8 @@ http://localhost:18789
 ### Gateway Not Starting
 
 ```bash
-# Check logs (as openclaw user)
-su - openclaw -c "journalctl --user -u openclaw-gateway -f"
+# Check logs
+sudo -u openclaw journalctl --user -u openclaw-gateway -f
 
 # Or from root
 journalctl --user -u openclaw-gateway -f --user-unit
@@ -625,12 +617,12 @@ journalctl --user -u openclaw-gateway -f --user-unit
 # Common issues:
 # - Port already in use: lsof -i :18789
 # - Permission denied: ensure running as correct user
-# - Config errors: openclaw doctor
+# - Config errors: sudo -u openclaw openclaw doctor
 ```
 
 ### Cannot Connect from Remote
 
-1. Verify binding: `openclaw gateway status` should show `0.0.0.0:18789`
+1. Verify binding: `sudo -u openclaw openclaw gateway status` should show `0.0.0.0:18789`
 2. Check firewall: `ufw status` or `iptables -L -n`
 3. Verify network connectivity: `ping <server-ip>`
 
@@ -638,98 +630,85 @@ journalctl --user -u openclaw-gateway -f --user-unit
 
 ```bash
 # View current token
-openclaw gateway status
+sudo -u openclaw openclaw gateway status
 
 # Regenerate token (if needed)
-openclaw doctor --generate-gateway-token
+sudo -u openclaw openclaw doctor --generate-gateway-token
 ```
 
 ### Model Provider Issues
 
 ```bash
 # Check model status
-openclaw models status
+sudo -u openclaw openclaw models status
 
 # Probe providers (may consume tokens)
-openclaw models status --probe
+sudo -u openclaw openclaw models status --probe
 
 # Set default model
-openclaw models set <provider:model>
+sudo -u openclaw openclaw models set <provider:model>
 
 # Example:
-openclaw models set ollama:llama3.2
-openclaw models set openai:gpt-4o
+sudo -u openclaw openclaw models set ollama:llama3.2
+sudo -u openclaw openclaw models set openai:gpt-4o
 ```
 
 ### Channel Issues
 
 ```bash
 # Check channel status
-openclaw channels status --probe
+sudo -u openclaw openclaw channels status --probe
 
 # View channel logs
-openclaw channels logs --channel telegram
+sudo -u openclaw openclaw channels logs --channel telegram
 
 # Re-login to a channel
-openclaw channels login --channel whatsapp
+sudo -u openclaw openclaw channels login --channel whatsapp
 ```
 
-## Installing Homebrew (Optional)
+## Using Homebrew
 
-If you need to install additional tools via Homebrew, follow these steps:
+Homebrew is installed automatically during the OpenClaw installation. It provides access to additional packages that may be useful for extending OpenClaw functionality.
 
-### Prerequisites
-
-The `openclaw` user needs sudo access and a password set. By default, the user is created without a password.
-
-### Step 1: Set Password for openclaw User
-
-As root, set a password for the openclaw user:
+### Verify Installation
 
 ```bash
-passwd openclaw
-# Enter and confirm the new password
-```
-
-### Step 2: Install Homebrew
-
-Switch to the openclaw user and run the installer:
-
-```bash
-su - openclaw
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-When prompted:
-
-1. Enter the openclaw password for sudo access
-2. Press ENTER to continue when the installer shows the directories it will create
-
-### Step 3: Add Homebrew to PATH
-
-After installation, add Homebrew to your shell:
-
-```bash
-echo >> /home/openclaw/.bashrc
-echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"' >> /home/openclaw/.bashrc
-eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"
-```
-
-### Step 4: Verify Installation
-
-```bash
-brew --version
+sudo -u openclaw brew --version
 ```
 
 ### Installing Packages
 
-Once Homebrew is installed, you can install packages:
+Once Homebrew is installed, you can install additional packages:
 
 ```bash
 brew install <package-name>
 ```
 
+### Common Useful Packages
+
+```bash
+# Example: Install additional tools
+brew install jq          # JSON processor
+brew install yq          # YAML processor
+brew install git-delta   # Better git diff viewer
+```
+
 **Note:** Homebrew packages are installed to `/home/linuxbrew/.linuxbrew/` and are available to all users on the system.
+
+### Troubleshooting Homebrew
+
+If Homebrew is not working correctly:
+
+```bash
+# Check if Homebrew is in PATH
+which brew
+
+# If not, add it manually
+eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"
+
+# Add to .bashrc permanently
+echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"' >> ~/.bashrc
+```
 
 ---
 

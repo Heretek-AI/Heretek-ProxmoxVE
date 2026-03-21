@@ -22,13 +22,69 @@ ssh -L 18789:localhost:18789 root@<container-ip>
 http://localhost:18789
 ```
 
-### Solution 2: HTTPS Reverse Proxy (Production)
+### Solution 2: Allow Insecure Auth (LAN Only)
+
+**Warning:** This reduces security. Only use on trusted networks.
+
+Add `allowInsecureAuth: true` to your OpenClaw configuration:
+
+```bash
+# Edit configuration
+nano ~/.openclaw/openclaw.json
+```
+
+```json
+{
+  "gateway": {
+    "bind": "lan",
+    "port": 18789,
+    "controlUi": {
+      "allowedOrigins": ["http://localhost:18789", "http://127.0.0.1:18789", "http://192.168.31.39:18789"],
+      "allowInsecureAuth": true
+    },
+    "auth": {
+      "mode": "token",
+      "token": "your-secure-token-here"
+    }
+  }
+}
+```
+
+Then restart:
+
+```bash
+systemctl restart openclaw
+```
+
+**Important:**
+
+- `allowInsecureAuth` only works for localhost connections in non-secure HTTP contexts
+- It does **NOT** bypass device identity for remote (non-localhost) connections
+- You must still use SSH tunnel or HTTPS for remote LAN access
+
+### Solution 3: HTTPS Reverse Proxy (Production)
 
 Set up Caddy or Nginx with SSL certificates for secure HTTPS access.
 
-### Solution 3: Tailscale VPN
+### Solution 4: Tailscale VPN
 
 Install Tailscale on both machines and access via Tailscale IP.
+
+### Emergency Break-Glass (NOT Recommended)
+
+For emergency access only, you can completely disable device auth:
+
+```json
+{
+  "gateway": {
+    "controlUi": {
+      "dangerouslyDisableDeviceAuth": true
+    }
+  }
+}
+```
+
+**⚠️ WARNING:** This is a severe security downgrade. Revert immediately after emergency use.
 
 ## "Origin Not Allowed" Error Fix
 
@@ -116,7 +172,7 @@ Add the configuration with your IP:
     "bind": "lan",
     "port": 18789,
     "controlUi": {
-      "allowedOrigins": ["http://localhost:18789", "http://127.0.0.1:18789", "http://192.168.31.39:18789"]
+      "allowedOrigins": ["http://localhost:18789", "http://127.0.0.1:18789", "http://192.168.1.4:18789"]
     }
   }
 }
@@ -284,6 +340,63 @@ openclaw doctor --generate-gateway-token
 # View current token
 openclaw gateway status
 ```
+
+## Installing Homebrew (Optional)
+
+If you need to install additional tools via Homebrew, follow these steps:
+
+### Prerequisites
+
+The `openclaw` user needs sudo access and a password set. By default, the user is created without a password.
+
+### Step 1: Set Password for openclaw User
+
+As root, set a password for the openclaw user:
+
+```bash
+passwd openclaw
+# Enter and confirm the new password
+```
+
+### Step 2: Install Homebrew
+
+Switch to the openclaw user and run the installer:
+
+```bash
+su - openclaw
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+When prompted:
+
+1. Enter the openclaw password for sudo access
+2. Press ENTER to continue when the installer shows the directories it will create
+
+### Step 3: Add Homebrew to PATH
+
+After installation, add Homebrew to your shell:
+
+```bash
+echo >> /home/openclaw/.bashrc
+echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"' >> /home/openclaw/.bashrc
+eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv bash)"
+```
+
+### Step 4: Verify Installation
+
+```bash
+brew --version
+```
+
+### Installing Packages
+
+Once Homebrew is installed, you can install packages:
+
+```bash
+brew install <package-name>
+```
+
+**Note:** Homebrew packages are installed to `/home/linuxbrew/.linuxbrew/` and are available to all users on the system.
 
 ## Additional Resources
 

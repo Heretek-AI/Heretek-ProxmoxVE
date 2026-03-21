@@ -102,12 +102,24 @@ function update_script() {
     msg_ok "Added Python version constraint to pyproject.toml"
   fi
 
-  # Fix: Update zhipuai to a version compatible with newer pyjwt
-  # zhipuai>=2.0.2 supports pyjwt>=2.10.1 which is compatible with mcp>=1.23.0
+  # Fix: Remove zhipuai dependency - it's incompatible with mcp>=1.23.0
+  # zhipuai has pyjwt<2.9.dev0 constraint which conflicts with mcp's pyjwt>=2.10.1
+  # zhipuai is only needed for ZhipuAI LLM provider, which is optional
   if grep -q 'zhipuai' pyproject.toml 2>/dev/null; then
-    msg_info "Updating zhipuai version constraint for pyjwt compatibility"
-    sed -i 's/zhipuai\s*=\s*"[^"]*"/zhipuai = ">=2.0.2"/' pyproject.toml
-    msg_ok "Updated zhipuai version constraint"
+    msg_info "Removing incompatible zhipuai dependency"
+    # Remove zhipuai from dependencies - it's an optional LLM provider
+    sed -i '/zhipuai/d' pyproject.toml
+    msg_ok "Removed zhipuai dependency"
+  fi
+
+  # Fix: Remove agentrun-sdk dependency - it's incompatible with crawl4ai
+  # agentrun-sdk requires alibabacloud-tea-openapi which needs cryptography<45.0.0
+  # but crawl4ai requires pyopenssl>=25.3.0 which needs cryptography>=45.0.7
+  # agentrun-sdk is only needed for Alibaba Cloud AgentRun, which is optional
+  if grep -q 'agentrun-sdk' pyproject.toml 2>/dev/null; then
+    msg_info "Removing incompatible agentrun-sdk dependency"
+    sed -i '/agentrun-sdk/d' pyproject.toml
+    msg_ok "Removed agentrun-sdk dependency"
   fi
 
   # Remove the lock file to force fresh dependency resolution
@@ -123,7 +135,8 @@ function update_script() {
   export UV_SYSTEM_PYTHON=1
   # Use --index-strategy unsafe-best-match to handle multi-index package resolution
   # Use --python-platform linux to only resolve for Linux (skip macOS/Windows markers)
-  $STD /root/.local/bin/uv sync --python 3.12 --index-strategy unsafe-best-match --python-platform linux
+  # Use --prerelease=allow to allow pre-release versions if needed
+  $STD /root/.local/bin/uv sync --python 3.12 --index-strategy unsafe-best-match --python-platform linux --prerelease=allow
   $STD /root/.local/bin/uv run download_deps.py
   msg_ok "Reinstalled Python Dependencies"
 
