@@ -6,16 +6,24 @@ After installation, OpenClaw requires a **model provider** to function. This is 
 
 ### Essential Commands
 
-**Note:** The `openclaw` user has no login shell for security. Use `sudo -u openclaw` to run commands.
+**Note:** The `openclaw` user has no login shell for security. Use the full path to run commands:
 
 ```bash
 # Verify installation
-sudo -u openclaw openclaw --version
-sudo -u openclaw openclaw doctor
-sudo -u openclaw openclaw gateway status
+/home/openclaw/.npm-global/bin/openclaw --version
+/home/openclaw/.npm-global/bin/openclaw doctor
+/home/openclaw/.npm-global/bin/openclaw gateway status
 
 # View logs
-sudo -u openclaw openclaw logs --follow
+/home/openclaw/.npm-global/bin/openclaw logs --follow
+```
+
+**Alternative:** Set PATH temporarily to use `openclaw` directly:
+
+```bash
+export PATH=/home/openclaw/.npm-global/bin:$PATH
+openclaw --version
+openclaw doctor
 ```
 
 ---
@@ -53,7 +61,7 @@ ollama pull all-minilm        # Smallest, fastest (45MB)
 #### 3. Configure OpenClaw for Ollama
 
 ```bash
-sudo -u openclaw openclaw configure
+/home/openclaw/.npm-global/bin/openclaw configure
 # Select "Ollama" when prompted for model provider
 # Enter Ollama URL (default: http://localhost:11434)
 ```
@@ -105,11 +113,11 @@ If Ollama runs on a different machine:
 ### Option B: OpenAI API
 
 ```bash
-sudo -u openclaw openclaw models auth add --provider openai
+/home/openclaw/.npm-global/bin/openclaw models auth add --provider openai
 # Enter your API key when prompted
 
 # Set as default model
-sudo -u openclaw openclaw models set openai:gpt-4o
+/home/openclaw/.npm-global/bin/openclaw models set openai:gpt-4o
 ```
 
 Manual configuration:
@@ -137,34 +145,34 @@ Manual configuration:
 ### Option C: Anthropic Claude
 
 ```bash
-sudo -u openclaw openclaw models auth add --provider anthropic
+/home/openclaw/.npm-global/bin/openclaw models auth add --provider anthropic
 # Enter your API key when prompted
 
 # Set as default model
-sudo -u openclaw openclaw models set anthropic:claude-opus-4-6
+/home/openclaw/.npm-global/bin/openclaw models set anthropic:claude-opus-4-6
 ```
 
 ### Option D: Other Providers
 
 OpenClaw supports many providers:
 
-| Provider      | Command                                          |
-| ------------- | ------------------------------------------------ |
-| Google Gemini | `openclaw models auth add --provider google`     |
-| Mistral       | `openclaw models auth add --provider mistral`    |
-| OpenRouter    | `openclaw models auth add --provider openrouter` |
-| Groq          | `openclaw models auth add --provider groq`       |
-| xAI           | `openclaw models auth add --provider xai`        |
-| Together AI   | `openclaw models auth add --provider together`   |
+| Provider      | Command                                                                         |
+| ------------- | ------------------------------------------------------------------------------- |
+| Google Gemini | `/home/openclaw/.npm-global/bin/openclaw models auth add --provider google`     |
+| Mistral       | `/home/openclaw/.npm-global/bin/openclaw models auth add --provider mistral`    |
+| OpenRouter    | `/home/openclaw/.npm-global/bin/openclaw models auth add --provider openrouter` |
+| Groq          | `/home/openclaw/.npm-global/bin/openclaw models auth add --provider groq`       |
+| xAI           | `/home/openclaw/.npm-global/bin/openclaw models auth add --provider xai`        |
+| Together AI   | `/home/openclaw/.npm-global/bin/openclaw models auth add --provider together`   |
 
 ### Verify Model Configuration
 
 ```bash
 # Check model status
-openclaw models status
+/home/openclaw/.npm-global/bin/openclaw models status
 
 # Test with a message
-openclaw agent --message "Hello, are you working?" --local
+/home/openclaw/.npm-global/bin/openclaw agent --message "Hello, are you working?" --local
 ```
 
 ---
@@ -195,7 +203,7 @@ OpenClaw supports multiple messaging channels. Configure channels to interact th
 3. **Configure OpenClaw**:
 
 ```bash
-sudo -u openclaw openclaw channels add --channel telegram --token "YOUR_BOT_TOKEN"
+/home/openclaw/.npm-global/bin/openclaw channels add --channel telegram --token "YOUR_BOT_TOKEN"
 ```
 
 4. **Start messaging** your bot on Telegram
@@ -208,7 +216,7 @@ sudo -u openclaw openclaw channels add --channel telegram --token "YOUR_BOT_TOKE
 4. **Configure OpenClaw**:
 
 ```bash
-sudo -u openclaw openclaw channels add --channel discord --token "YOUR_BOT_TOKEN"
+/home/openclaw/.npm-global/bin/openclaw channels add --channel discord --token "YOUR_BOT_TOKEN"
 ```
 
 ### WhatsApp Setup
@@ -216,7 +224,7 @@ sudo -u openclaw openclaw channels add --channel discord --token "YOUR_BOT_TOKEN
 WhatsApp requires QR code pairing:
 
 ```bash
-sudo -u openclaw openclaw channels add --channel whatsapp
+/home/openclaw/.npm-global/bin/openclaw channels add --channel whatsapp
 # A QR code will be displayed
 # Scan with WhatsApp on your phone (Settings > Linked Devices)
 ```
@@ -227,13 +235,13 @@ You can configure multiple accounts per channel:
 
 ```bash
 # Add a second Telegram account
-openclaw channels add --channel telegram --account work --name "Work Bot" --token "WORK_BOT_TOKEN"
+/home/openclaw/.npm-global/bin/openclaw channels add --channel telegram --account work --name "Work Bot" --token "WORK_BOT_TOKEN"
 
 # List all channels
-openclaw channels list
+/home/openclaw/.npm-global/bin/openclaw channels list
 
 # Check channel status
-openclaw channels status --probe
+/home/openclaw/.npm-global/bin/openclaw channels status --probe
 ```
 
 ### Channel Routing
@@ -242,11 +250,11 @@ Route different channels to different agents:
 
 ```bash
 # Create an agent
-openclaw agents add --workspace ~/.openclaw-workspaces/work
+/home/openclaw/.npm-global/bin/openclaw agents add --workspace ~/.openclaw-workspaces/work
 
 # Bind channels to agent
-openclaw agents bind --agent <agent-id> --bind telegram:work
-openclaw agents bind --agent <agent-id> --bind discord:main
+/home/openclaw/.npm-global/bin/openclaw agents bind --agent <agent-id> --bind telegram:work
+/home/openclaw/.npm-global/bin/openclaw agents bind --agent <agent-id> --bind discord:main
 ```
 
 ---
@@ -299,13 +307,13 @@ EOF
 
 ```bash
 # Check memory status
-openclaw memory status
+/home/openclaw/.npm-global/bin/openclaw memory status
 
 # Reindex memory files
-openclaw memory index
+/home/openclaw/.npm-global/bin/openclaw memory index
 
 # Search memory
-openclaw memory search "project details"
+/home/openclaw/.npm-global/bin/openclaw memory search "project details"
 ```
 
 ---
@@ -362,7 +370,7 @@ nano ~/.openclaw/openclaw.json
 Then restart:
 
 ```bash
-su - openclaw -c "systemctl --user restart openclaw-gateway"
+systemctl restart openclaw-gateway
 ```
 
 **Important:**
@@ -430,7 +438,7 @@ sudo -u openclaw tee /home/openclaw/.openclaw/openclaw.json > /dev/null << EOF
 EOF
 
 # Apply and restart
-sudo -u openclaw systemctl --user restart openclaw-gateway
+systemctl restart openclaw-gateway
 ```
 
 **Note:** Even with `allowedOrigins` configured, you still need a secure context (HTTPS or localhost) for the device identity requirement. Use SSH tunneling for LAN access.
@@ -457,11 +465,11 @@ By default, OpenClaw binds to localhost (127.0.0.1) only. To make it accessible 
 
 ```bash
 # Open the gateway configuration
-sudo -u openclaw openclaw configure --section gateway
+/home/openclaw/.npm-global/bin/openclaw configure --section gateway
 
 # Set bind to "lan" when prompted
 # Then restart the service
-sudo -u openclaw systemctl --user restart openclaw-gateway
+systemctl restart openclaw-gateway
 ```
 
 ### Method 2: Manual Configuration
@@ -490,7 +498,7 @@ Add the configuration with your IP:
 Apply changes:
 
 ```bash
-sudo -u openclaw systemctl --user restart openclaw-gateway
+systemctl restart openclaw-gateway
 ```
 
 ### Method 3: Quick Fix for Existing Installations
@@ -520,7 +528,7 @@ sudo -u openclaw tee /home/openclaw/.openclaw/openclaw.json > /dev/null << EOF
 EOF
 
 # Restart the service
-sudo -u openclaw systemctl --user restart openclaw-gateway
+systemctl restart openclaw-gateway
 ```
 
 ### Method 4: Environment Variable
@@ -537,7 +545,7 @@ OPENCLAW_BIND=lan
 Check the current binding:
 
 ```bash
-sudo -u openclaw openclaw gateway status
+/home/openclaw/.npm-global/bin/openclaw gateway status
 ```
 
 Output should show:
@@ -596,9 +604,9 @@ http://localhost:18789
 2. Set OpenClaw bind to `tailnet`:
 
    ```bash
-   sudo -u openclaw openclaw configure --section gateway
+   /home/openclaw/.npm-global/bin/openclaw configure --section gateway
    # Set bind to "tailnet"
-   sudo -u openclaw systemctl --user restart openclaw-gateway
+   systemctl restart openclaw-gateway
    ```
 
 3. Access via Tailscale IP: `http://<tailscale-ip>:18789`
@@ -609,20 +617,17 @@ http://localhost:18789
 
 ```bash
 # Check logs
-sudo -u openclaw journalctl --user -u openclaw-gateway -f
-
-# Or from root
-journalctl --user -u openclaw-gateway -f --user-unit
+journalctl -u openclaw-gateway -f
 
 # Common issues:
 # - Port already in use: lsof -i :18789
 # - Permission denied: ensure running as correct user
-# - Config errors: sudo -u openclaw openclaw doctor
+# - Config errors: /home/openclaw/.npm-global/bin/openclaw doctor
 ```
 
 ### Cannot Connect from Remote
 
-1. Verify binding: `sudo -u openclaw openclaw gateway status` should show `0.0.0.0:18789`
+1. Verify binding: `/home/openclaw/.npm-global/bin/openclaw gateway status` should show `0.0.0.0:18789`
 2. Check firewall: `ufw status` or `iptables -L -n`
 3. Verify network connectivity: `ping <server-ip>`
 
@@ -630,40 +635,40 @@ journalctl --user -u openclaw-gateway -f --user-unit
 
 ```bash
 # View current token
-sudo -u openclaw openclaw gateway status
+/home/openclaw/.npm-global/bin/openclaw gateway status
 
 # Regenerate token (if needed)
-sudo -u openclaw openclaw doctor --generate-gateway-token
+/home/openclaw/.npm-global/bin/openclaw doctor --generate-gateway-token
 ```
 
 ### Model Provider Issues
 
 ```bash
 # Check model status
-sudo -u openclaw openclaw models status
+/home/openclaw/.npm-global/bin/openclaw models status
 
 # Probe providers (may consume tokens)
-sudo -u openclaw openclaw models status --probe
+/home/openclaw/.npm-global/bin/openclaw models status --probe
 
 # Set default model
-sudo -u openclaw openclaw models set <provider:model>
+/home/openclaw/.npm-global/bin/openclaw models set <provider:model>
 
 # Example:
-sudo -u openclaw openclaw models set ollama:llama3.2
-sudo -u openclaw openclaw models set openai:gpt-4o
+/home/openclaw/.npm-global/bin/openclaw models set ollama:llama3.2
+/home/openclaw/.npm-global/bin/openclaw models set openai:gpt-4o
 ```
 
 ### Channel Issues
 
 ```bash
 # Check channel status
-sudo -u openclaw openclaw channels status --probe
+/home/openclaw/.npm-global/bin/openclaw channels status --probe
 
 # View channel logs
-sudo -u openclaw openclaw channels logs --channel telegram
+/home/openclaw/.npm-global/bin/openclaw channels logs --channel telegram
 
 # Re-login to a channel
-sudo -u openclaw openclaw channels login --channel whatsapp
+/home/openclaw/.npm-global/bin/openclaw channels login --channel whatsapp
 ```
 
 ## Using Homebrew
@@ -673,7 +678,7 @@ Homebrew is installed automatically during the OpenClaw installation. It provide
 ### Verify Installation
 
 ```bash
-sudo -u openclaw brew --version
+/home/linuxbrew/.linuxbrew/bin/brew --version
 ```
 
 ### Installing Packages
