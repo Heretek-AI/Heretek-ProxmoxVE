@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import Image from "next/image";
 
+import type { CatalogScript } from "@/lib/script-meta";
 import type { Category } from "@/lib/types";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -19,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { ScriptView } from "@/components/heretek/script-view";
 import { Calendar } from "@/components/ui/calendar";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -31,7 +33,6 @@ import { cn } from "@/lib/utils";
 
 import type { Script } from "./_schemas/schemas";
 
-import { ScriptItem } from "../scripts/_components/script-item";
 import InstallMethod from "./_components/install-method";
 import { ScriptSchema } from "./_schemas/schemas";
 import Categories from "./_components/categories";
@@ -581,7 +582,17 @@ export default function JSONGenerator() {
             </div>
           </TabsContent>
           <TabsContent value="preview" className="h-full w-full">
-            <ScriptItem item={script} />
+            <div className="pb-10">
+              <ScriptView
+                script={{
+                  ...(script as unknown as CatalogScript),
+                  categoryNames: categories.filter(c => script.categories.includes(c.id)).map(c => c.name),
+                  version: null,
+                  available: true,
+                }}
+                categories={categories}
+              />
+            </div>
           </TabsContent>
         </Tabs>
       </div>

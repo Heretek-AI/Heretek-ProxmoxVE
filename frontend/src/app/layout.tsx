@@ -1,23 +1,33 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 
+import { Cinzel, IBM_Plex_Sans, JetBrains_Mono } from "next/font/google";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
-import { Cinzel, JetBrains_Mono } from "next/font/google";
 import Script from "next/script";
 import React from "react";
 
-import { CopycatWarningToast } from "@/components/copycat-warning-toast";
+import { SiteFooter } from "@/components/heretek/site-footer";
+import { SiteHeader } from "@/components/heretek/site-header";
 import { ThemeProvider } from "@/components/theme-provider";
 import { analytics, basePath } from "@/config/site-config";
 import QueryProvider from "@/components/query-provider";
 import { Toaster } from "@/components/ui/sonner";
-import Footer from "@/components/footer";
-import Navbar from "@/components/navbar";
+import { formatDate } from "@/lib/script-meta";
+import { loadCatalog } from "@/lib/catalog";
 import "@/styles/globals.css";
 
-// Heretek Fonts - Cinzel for headings (gothic/medieval), JetBrains Mono for body (industrial/tech)
+// Cinzel carries the Heretek display voice, Plex Sans keeps long text readable,
+// and JetBrains Mono is used for anything a machine would print.
 const cinzel = Cinzel({
   subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
   variable: "--font-cinzel",
+  display: "swap",
+});
+
+const plex = IBM_Plex_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-plex",
   display: "swap",
 });
 
@@ -30,7 +40,7 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Heretek AI - Proxmox VE Scripts",
   description:
-    "The Heretek AI repository for Proxmox VE Helper-Scripts. Embrace the machine spirit with over 400+ scripts to manage your Proxmox Virtual Environment. Tech-heresy made manifest.",
+    "The Heretek AI repository for Proxmox VE Helper-Scripts. Embrace the machine spirit with a growing catalogue of scripts to manage your Proxmox Virtual Environment. Tech-heresy made manifest.",
   applicationName: "Heretek AI",
   generator: "Next.js",
   referrer: "origin-when-cross-origin",
@@ -61,11 +71,6 @@ export const metadata: Metadata = {
   alternates: {
     canonical: `https://Heretek-AI.github.io/${basePath}/`,
   },
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 5,
-  },
   formatDetection: {
     email: false,
     address: false,
@@ -74,7 +79,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Heretek AI - Proxmox VE Scripts",
     description:
-      "The Heretek AI repository for Proxmox VE Helper-Scripts. Embrace the machine spirit with over 400+ scripts to manage your Proxmox Virtual Environment.",
+      "The Heretek AI repository for Proxmox VE Helper-Scripts. Embrace the machine spirit with a growing catalogue of scripts to manage your Proxmox Virtual Environment.",
     url: `https://Heretek-AI.github.io/${basePath}/`,
     siteName: "Heretek AI",
     images: [
@@ -93,7 +98,7 @@ export const metadata: Metadata = {
     title: "Heretek AI - Proxmox VE Scripts",
     creator: "@BramSuurdje",
     description:
-      "The Heretek AI repository for Proxmox VE Helper-Scripts. Embrace the machine spirit with over 400+ scripts to manage your Proxmox Virtual Environment.",
+      "The Heretek AI repository for Proxmox VE Helper-Scripts. Embrace the machine spirit with a growing catalogue of scripts to manage your Proxmox Virtual Environment.",
     images: [`https://Heretek-AI.github.io/${basePath}/defaultimg.png`],
   },
   manifest: "/manifest.webmanifest",
@@ -104,42 +109,68 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0b0a09" },
+    { media: "(prefers-color-scheme: light)", color: "#f1ece2" },
+  ],
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const { scripts, categories, versionsGenerated } = loadCatalog();
+  const live = scripts.filter(s => s.available);
+  const usedCategories = categories.filter(c => c.scripts.some(s => s.available)).length;
+  const status = [
+    `${live.length} scripts`,
+    `${usedCategories} categories`,
+    versionsGenerated ? `versions checked ${formatDate(versionsGenerated)}` : null,
+  ].filter(Boolean).join(" · ");
+  const paletteScripts = live.map(s => ({
+    slug: s.slug,
+    name: s.name,
+    type: s.type,
+    logo: s.logo,
+    category: s.categoryNames[0] ?? "",
+    description: s.description,
+  }));
+
   return (
-    <html lang="en" suppressHydrationWarning className={`${cinzel.variable} ${jetbrainsMono.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`${cinzel.variable} ${plex.variable} ${jetbrainsMono.variable}`}>
       <head>
         <link rel="canonical" href={metadata.metadataBase?.href} />
         <link rel="manifest" href="manifest.webmanifest" />
         <link rel="preconnect" href="https://api.github.com" />
+        <link rel="alternate" type="application/rss+xml" title="Heretek-AI: new scripts" href={`/${basePath}/rss.xml`} />
       </head>
-      <body className={`${jetbrainsMono.className} antialiased`}>
+      <body className="antialiased">
         <Script
           src={`https://${analytics.url}/api/script.js`}
           data-site-id={analytics.token}
           strategy="afterInteractive"
         />
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-          <div className="flex w-full flex-col justify-center">
-            <NuqsAdapter>
-              <QueryProvider>
-                <Navbar />
-                <div className="flex min-h-screen flex-col justify-center">
-                  <div className="flex w-full justify-center">
-                    <div className="w-full max-w-[1440px] ">
-                      {children}
-                      <Toaster richColors />
-                      <CopycatWarningToast />
-                    </div>
-                  </div>
-                  <Footer />
-                </div>
-              </QueryProvider>
-            </NuqsAdapter>
-          </div>
+          <NuqsAdapter>
+            <QueryProvider>
+              <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:bg-primary focus:px-3 focus:py-2 focus:text-primary-foreground">
+                Skip to content
+              </a>
+              <div className="flex min-h-screen flex-col">
+                <SiteHeader scripts={paletteScripts} status={status} />
+                <main id="main" className="flex-1">
+                  {children}
+                </main>
+                <SiteFooter />
+              </div>
+              <Toaster />
+            </QueryProvider>
+          </NuqsAdapter>
         </ThemeProvider>
       </body>
     </html>

@@ -6,7 +6,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-1.5 py-0.1 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  "inline-flex items-center rounded-sm border px-1.5 py-px font-mono text-[11px] font-medium uppercase tracking-wider transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
   {
     variants: {
       variant: {
@@ -17,9 +17,9 @@ const badgeVariants = cva(
         destructive:
           "border-transparent  text-destructive-foreground border-destructive-foreground",
         outline: "text-foreground",
-        success: "text-green-500 border-green-500",
-        warning: "text-yellow-500 border-yellow-500",
-        failure: "text-red-500 border-red-500",
+        success: "text-verdigris border-verdigris/50",
+        warning: "text-brass border-brass/50",
+        failure: "text-blood border-blood/50",
       },
     },
     defaultVariants: {

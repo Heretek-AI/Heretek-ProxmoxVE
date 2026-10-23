@@ -1,49 +1,28 @@
 "use client";
 
-import { MoonIcon, SunIcon } from "@radix-ui/react-icons";
+import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./tooltip";
-import { Button } from "./button";
-
 export function ThemeToggle() {
-  const { setTheme, theme: currentTheme } = useTheme();
+  const { setTheme, resolvedTheme } = useTheme();
 
-  const handleChangeTheme = (theme: "light" | "dark") => {
-    if (theme === currentTheme)
-      return;
-
+  const toggle = () => {
+    const next = resolvedTheme === "dark" ? "light" : "dark";
     if (!document.startViewTransition)
-      return setTheme(theme);
-    document.startViewTransition(() => setTheme(theme));
+      return setTheme(next);
+    document.startViewTransition(() => setTheme(next));
   };
 
   return (
-    <TooltipProvider>
-      <Tooltip delayDuration={100}>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            type="button"
-            size="icon"
-            className="px-2"
-            aria-label="Toggle theme"
-            onClick={() =>
-              handleChangeTheme(currentTheme === "dark" ? "light" : "dark")}
-          >
-            <SunIcon className="size-[1.2rem] text-neutral-800 dark:hidden dark:text-neutral-200" />
-            <MoonIcon className="hidden size-[1.2rem] text-neutral-800 dark:block dark:text-neutral-200" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="text-xs">
-          Theme Toggle
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <button
+      type="button"
+      onClick={toggle}
+      aria-label="Toggle light and dark theme"
+      title="Toggle theme"
+      className="flex size-9 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+    >
+      <Sun className="size-[18px] dark:hidden" />
+      <Moon className="hidden size-[18px] dark:block" />
+    </button>
   );
 }

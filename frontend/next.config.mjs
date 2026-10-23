@@ -23,6 +23,9 @@ const nextConfig = {
   },
 
   output: "export",
+  // GitHub Pages cannot serve /scripts when both scripts.html and a scripts/ directory
+  // exist, so every page is exported as <route>/index.html.
+  trailingSlash: true,
   basePath: `/ProxmoxVE`,
 };
 

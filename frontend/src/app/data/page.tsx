@@ -16,7 +16,7 @@ import { Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis } from "recharts";
 
 import type { ChartConfig } from "@/components/ui/chart";
 
-import { formattedBadge } from "@/components/command-menu";
+import { TypeTag } from "@/components/heretek/type-tag";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -176,8 +176,8 @@ export default function DataPage() {
   };
 
   const getTypeBadge = (type: string) => {
-    if (type === "lxc") return formattedBadge("ct");
-    if (type === "vm") return formattedBadge("vm");
+    if (type === "lxc") return <TypeTag type="ct" />;
+    if (type === "vm") return <TypeTag type="vm" />;
     return null;
   };
 
