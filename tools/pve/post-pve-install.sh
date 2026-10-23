@@ -45,7 +45,7 @@ msg_error() {
 }
 
 # Telemetry
-source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/api.func) 2>/dev/null || true
+source <(curl -fsSL "${COMMUNITY_SCRIPTS_CORE_URL:-https://raw.githubusercontent.com/community-scripts/core/main}/api/api.func") 2>/dev/null || true
 declare -f init_tool_telemetry &>/dev/null && init_tool_telemetry "post-pve-install" "pve"
 
 get_pve_version() {
@@ -63,7 +63,14 @@ get_pve_major_minor() {
 
 component_exists_in_sources() {
   local component="$1"
-  grep -h -E "^[^#]*Components:[^#]*\b${component}\b" /etc/apt/sources.list.d/*.sources 2>/dev/null | grep -q .
+  local line comp
+  while IFS= read -r line; do
+    line="${line#*Components:}"
+    for comp in $line; do
+      [[ "$comp" == "$component" ]] && return 0
+    done
+  done < <(grep -h -E "^[^#]*Components:" /etc/apt/sources.list.d/*.sources 2>/dev/null)
+  return 1
 }
 
 main() {
@@ -92,14 +99,14 @@ main() {
     fi
     start_routines_8
   elif [[ "$PVE_MAJOR" == "9" ]]; then
-    if ((PVE_MINOR < 0 || PVE_MINOR > 1)); then
-      msg_error "Only Proxmox 9.0-9.1.x is currently supported"
+    if ((PVE_MINOR < 0 || PVE_MINOR > 2)); then
+      msg_error "Only Proxmox 9.0-9.2.x is currently supported"
       exit 105
     fi
-    start_routines_9
+    start_routines_9 "$PVE_MINOR"
   else
     msg_error "Unsupported Proxmox VE major version: $PVE_MAJOR"
-    echo -e "Supported: 8.0–8.9.x and 9.0–9.1.x"
+    echo -e "Supported: 8.0–8.9.x and 9.0–9.2.x"
     exit 105
   fi
 }
@@ -115,9 +122,9 @@ start_routines_8() {
   yes)
     msg_info "Correcting Proxmox VE Sources"
     cat <<EOF >/etc/apt/sources.list
-deb http://deb.debian.org/debian bookworm main contrib
-deb http://deb.debian.org/debian bookworm-updates main contrib
-deb http://security.debian.org/debian-security bookworm-security main contrib
+deb https://deb.debian.org/debian bookworm main contrib
+deb https://deb.debian.org/debian bookworm-updates main contrib
+deb https://security.debian.org/debian-security bookworm-security main contrib
 EOF
     echo 'APT::Get::Update::SourceListWarnings::NonFreeFirmware "false";' >/etc/apt/apt.conf.d/no-bookworm-firmware.conf
     msg_ok "Corrected Proxmox VE Sources"
@@ -188,6 +195,7 @@ EOF
 }
 
 start_routines_9() {
+  local PVE_MINOR="${1:-0}"
   header_info
 
   # check if deb822 Sources (*.sources) exist
@@ -251,8 +259,10 @@ start_routines_9() {
       msg_info "Correcting Proxmox VE Sources (deb822)"
       # remove all existing .list files
       rm -f /etc/apt/sources.list.d/*.list
-      # remove bookworm and proxmox entries from sources.list
-      sed -i '/proxmox/d;/bookworm/d' /etc/apt/sources.list || true
+      # remove bookworm and proxmox entries from sources.list (if it exists)
+      if [ -f /etc/apt/sources.list ]; then
+        sed -i '/proxmox/d;/bookworm/d' /etc/apt/sources.list
+      fi
       # Create new deb822 sources
       cat >/etc/apt/sources.list.d/debian.sources <<EOF
 Types: deb
@@ -285,7 +295,7 @@ EOF
       --title "PVE-ENTERPRISE" \
       --menu "'pve-enterprise' repository already exists.\n\nWhat do you want to do?" 14 58 2 \
       "keep" "Keep as is" \
-      "disable" "Comment out (disable) this repo" \
+      "disable" "Disable this repo (set Enabled: false)" \
       "delete" "Delete this repo file" \
       3>&2 2>&1 1>&3)
     case $CHOICE in
@@ -473,15 +483,21 @@ EOF
       "no" " " 3>&2 2>&1 1>&3)
     case $CHOICE in
     yes)
+      local CEPH_RELEASE
+      if ((PVE_MINOR >= 2)); then
+        CEPH_RELEASE="ceph-tentacle"
+      else
+        CEPH_RELEASE="ceph-squid"
+      fi
       msg_info "Adding 'ceph package repositories' (deb822)"
       cat >/etc/apt/sources.list.d/ceph.sources <<EOF
 Types: deb
-URIs: http://download.proxmox.com/debian/ceph-squid
+URIs: http://download.proxmox.com/debian/${CEPH_RELEASE}
 Suites: trixie
 Components: no-subscription
 Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
 EOF
-      msg_ok "Added 'ceph package repositories'"
+      msg_ok "Added 'ceph package repositories' (${CEPH_RELEASE})"
       ;;
     no)
       msg_error "Selected no to Adding 'ceph package repositories'"

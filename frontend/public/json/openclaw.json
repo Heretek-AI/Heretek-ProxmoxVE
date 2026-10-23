@@ -63,7 +63,7 @@
       "type": "warning"
     },
     {
-      "text": "To configure a model provider: su - openclaw && openclaw models auth add --provider <provider>",
+      "text": "To configure a model provider: /home/openclaw/.npm-global/bin/openclaw models auth add --provider <provider>",
       "type": "info"
     },
     {
@@ -75,28 +75,32 @@
       "type": "warning"
     },
     {
-      "text": "To configure channels (Telegram, Discord, WhatsApp, etc.): su - openclaw && openclaw channels add --channel <name>",
+      "text": "To configure channels (Telegram, Discord, WhatsApp, etc.): /home/openclaw/.npm-global/bin/openclaw channels add --channel <name>",
       "type": "info"
     },
     {
-      "text": "Verify installation: su - openclaw && openclaw doctor && openclaw gateway status",
+      "text": "Verify installation: /home/openclaw/.npm-global/bin/openclaw doctor && /home/openclaw/.npm-global/bin/openclaw gateway status",
       "type": "info"
     },
     {
-      "text": "View logs: su - openclaw && openclaw logs --follow",
+      "text": "View logs: journalctl -u openclaw-gateway -f",
       "type": "info"
     },
     {
-      "text": "Auth token is displayed during installation - save it for pairing devices",
+      "text": "Auth token saved to /home/openclaw/.openclaw/auth_token - view with: cat /home/openclaw/.openclaw/auth_token",
+      "type": "info"
+    },
+    {
+      "text": "The openclaw user has no login shell - use full path '/home/openclaw/.npm-global/bin/openclaw' or 'export PATH=/home/openclaw/.npm-global/bin:$PATH' to run commands",
       "type": "warning"
     },
     {
-      "text": "Homebrew is installed automatically - use 'sudo -u openclaw brew install <package>' to install additional tools",
+      "text": "Service management: systemctl start/stop/restart/status openclaw-gateway",
       "type": "info"
     },
     {
-      "text": "The openclaw user has no login shell - use 'sudo -u openclaw <command>' to run commands",
-      "type": "warning"
+      "text": "View logs: journalctl -u openclaw-gateway -f",
+      "type": "info"
     }
   ]
 }
