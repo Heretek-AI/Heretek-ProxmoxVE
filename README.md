@@ -47,6 +47,9 @@ and fetch their install scripts from Heretek-AI/ProxmoxVE.
 | [Yao](https://github.com/YaoApp/yao) | Yao application engine | |
 | [ZTNet](https://ztnet.network) | Web UI for ZeroTier networks | |
 
+Hermes, Lemonade and Wakapi used to be here. They now have official scripts in
+community-scripts/ProxmoxVE: `hermesagent`, `lemonade-server` and `alpine-wakapi`.
+
 ## Usage
 
 Run a script from the Proxmox VE shell, for example:
