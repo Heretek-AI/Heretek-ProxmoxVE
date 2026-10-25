@@ -42,6 +42,15 @@ function update_script() {
     fetch_and_deploy_gh_release "radare2" "radareorg/radare2" "binary" "latest" "" "radare2_*_amd64.deb"
   fi
 
+  if [[ -x /usr/local/bin/r2mcp ]] && check_for_gh_release "r2mcp" "radareorg/radare2-mcp"; then
+    fetch_and_deploy_gh_release "r2mcp" "radareorg/radare2-mcp" "binary" "latest" "" "r2mcp_*_amd64.deb"
+  fi
+
+  if [[ -d /opt/jadx ]] && check_for_gh_release "jadx" "skylot/jadx"; then
+    CLEAN_INSTALL=1 fetch_and_deploy_gh_release "jadx" "skylot/jadx" "prebuild" "latest" "/opt/jadx" "jadx-[0-9]*.zip"
+    chmod +x /opt/jadx/bin/jadx
+  fi
+
   DIE_DISTRO=$(. /etc/os-release && echo "${ID^}_${VERSION_ID}")
   if check_for_gh_release "die" "horsicq/DIE-engine" &&
     curl -fsSL https://api.github.com/repos/horsicq/DIE-engine/releases/latest |
@@ -50,8 +59,11 @@ function update_script() {
   fi
 
   msg_info "Updating REA and triage tools"
-  $STD npm update -g rea-agents
-  $STD /opt/re-tools-venv/bin/pip install --upgrade flare-capa flare-floss yara-python pefile pyelftools r2pipe
+  $STD npm update -g rea-agents box-js
+  $STD /opt/re-tools-venv/bin/pip install --upgrade flare-capa flare-floss yara-python pefile pyelftools r2pipe \
+    oletools msoffcrypto-tool pdfminer.six dnfile dotnetfile androguard py-tlsh stix2 \
+    sigma-cli pysigma-backend-splunk pysigma-backend-elasticsearch pysigma-pipeline-sysmon pysigma-pipeline-windows
+  [[ -x /opt/ghidra-mcp-venv/bin/pip ]] && $STD /opt/ghidra-mcp-venv/bin/pip install --upgrade pyghidra-mcp
   [[ -x /usr/local/sbin/re-capa-rules ]] && $STD /usr/local/sbin/re-capa-rules
   msg_ok "Updated REA and triage tools"
 
