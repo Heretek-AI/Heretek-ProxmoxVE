@@ -65,6 +65,10 @@ function update_script() {
     sigma-cli pysigma-backend-splunk pysigma-backend-elasticsearch pysigma-pipeline-sysmon pysigma-pipeline-windows
   [[ -x /opt/ghidra-mcp-venv/bin/pip ]] && $STD /opt/ghidra-mcp-venv/bin/pip install --upgrade pyghidra-mcp
   [[ -x /usr/local/sbin/re-capa-rules ]] && $STD /usr/local/sbin/re-capa-rules
+  if [[ -x /opt/re-console-venv/bin/pip ]]; then
+    $STD /opt/re-console-venv/bin/pip install --upgrade fastapi uvicorn python-multipart pyzipper
+    systemctl try-restart re-console
+  fi
   msg_ok "Updated REA and triage tools"
 
   if [[ -x /home/analyst/.local/bin/hermes ]]; then
@@ -94,7 +98,8 @@ echo -e "${INFO}${YW} Configure Hermes inside the container:${CL}"
 echo -e "${TAB}${BGN}re-agent-setup${CL}"
 echo -e "${INFO}${YW} Add a custom provider or a memory embeddings API, and let it through the quarantine:${CL}"
 echo -e "${TAB}${BGN}re-agent-config provider add <name> <base_url>${CL}"
-echo -e "${INFO}${YW} The Hermes dashboard listens on localhost only. Reach it through an SSH tunnel:${CL}"
-echo -e "${TAB}${BGN}ssh -L 9119:127.0.0.1:9119 root@${IP}${CL}"
+echo -e "${INFO}${YW} The case console (9120) and the Hermes dashboard (9119) listen on localhost only. Reach them through an SSH tunnel:${CL}"
+echo -e "${TAB}${BGN}ssh -L 9120:127.0.0.1:9120 -L 9119:127.0.0.1:9119 root@${IP}${CL}"
+echo -e "${TAB}${GN}then open http://127.0.0.1:9120${CL}"
 echo -e "${INFO}${YW} Start a case with:${CL}"
 echo -e "${TAB}${BGN}rea-case new <sample>${CL}"

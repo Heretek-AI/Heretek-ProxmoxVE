@@ -464,7 +464,8 @@ metadata:
    - **Detections**: the rules in `rules/` and how they tested.
    - **Gaps**: what was not analysed and why (packed layer not unpacked, no .NET decompiler, not detonated).
 4. Defang every URL, domain and IP in the notes (`hxxp`, `[.]`).
-5. Run `rea-case export <sample>` and read `FINAL_REPORT.md` back to check it.
+5. Set the verdict, and the family if you identified one: `rea-case verdict <sample> <malicious|suspicious|benign|unknown> [family]`. The case console shows it and the report leads with it.
+6. Run `rea-case export <sample>` and read `FINAL_REPORT.md` back to check it.
 SKILL
 chmod -R a+rX,go-w /opt/re-agent/skills
 hermes_set() {
@@ -612,6 +613,8 @@ usage() {
   echo "  new <file>       Create a case directory and run hashes, DIE, CAPA and FLOSS"
   echo "  status <sample>  Show the case metadata and verified claims"
   echo "  iocs <sample>    Collect candidate IOCs from the case output and list them"
+  echo "  verdict <sample> <unknown|benign|suspicious|malicious> [family]"
+  echo "                   Set the case verdict (the console shows it, the report leads with it)"
   echo "  export <sample>  Write FINAL_REPORT.md from the investigation plan"
   echo "  list             List the cases under /work/cases"
   echo "  clean            Remove leftover lock files under /work/cases"
@@ -655,6 +658,7 @@ new)
     '{sample_name: $name, file_path: $path, file_size_bytes: $size, file_type: $type, md5: $md5, sha1: $sha1, sha256: $sha256, ssdeep: $ssdeep, tlsh: $tlsh, created_at: $created}' \
     >"$CASE_DIR/metadata.json"
   mkdir -p "$CASE_DIR/children" "$CASE_DIR/rules"
+  [[ -f "$CASE_DIR/case.json" ]] || echo '{"status": "open", "verdict": "unknown", "family": "", "notes": ""}' >"$CASE_DIR/case.json"
   echo "==> [2/5] Initializing casebook"
   re-casebook init "$CASE_DIR" "$SAMPLE"
   # The parsers below read hostile input, so they run in the sandbox (no
@@ -702,6 +706,7 @@ EOF
 status)
   need_case
   jq . "$CASE_DIR/metadata.json"
+  [[ -f "$CASE_DIR/case.json" ]] && jq '{status, verdict, family}' "$CASE_DIR/case.json"
   echo "Verified claims:"
   jq '.verified_claims' "$CASE_DIR/casebook.json"
   ;;
@@ -710,6 +715,11 @@ export)
   {
     echo "# Technical Report: $(basename "$SAMPLE")"
     echo "Generated: $(date)"
+    if [[ -f "$CASE_DIR/case.json" ]]; then
+      jq -r '"Verdict: **\(.verdict // "unknown")**" + (if (.family // "") != "" then " (\(.family))" else "" end)' "$CASE_DIR/case.json"
+    else
+      echo "Verdict: **unknown**"
+    fi
     echo
     if [[ -f "$CASE_DIR/report_notes.md" ]]; then
       cat "$CASE_DIR/report_notes.md"
@@ -729,13 +739,35 @@ export)
         | (if (.type | IN("url", "domain", "ipv4", "email")) then (.value | sub("^http"; "hxxp"; "i") | gsub("\\."; "[.]")) else .value end) as $v
         | "| \(.type) | `\($v)` | \(.evidence_ids | join(", ")) |"' "$CASE_DIR/iocs.json"
     fi
-  } >"$CASE_DIR/FINAL_REPORT.md"
+  } >"$CASE_DIR/FINAL_REPORT.md.tmp"
+  # Replaced only once complete, so a failed export never leaves half a report.
+  mv "$CASE_DIR/FINAL_REPORT.md.tmp" "$CASE_DIR/FINAL_REPORT.md"
   echo "Report written to $CASE_DIR/FINAL_REPORT.md"
   ;;
 iocs)
   need_case
   re-ioc extract "$CASE_DIR"
   re-ioc list "$CASE_DIR"
+  ;;
+verdict)
+  need_case
+  VERDICT="${3:-}"
+  case "$VERDICT" in
+  unknown | benign | suspicious | malicious) ;;
+  *)
+    echo "Usage: rea-case verdict <sample> <unknown|benign|suspicious|malicious> [family]"
+    exit 1
+    ;;
+  esac
+  STATE_FILE="$CASE_DIR/case.json"
+  # The case console takes the same lock for its edits.
+  exec 9>>"$STATE_FILE.lock"
+  flock 9
+  [[ -f "$STATE_FILE" ]] || echo '{"status": "open", "verdict": "unknown", "family": "", "notes": ""}' >"$STATE_FILE"
+  jq --arg v "$VERDICT" --arg f "${4:-}" '.verdict = $v | if $f != "" then .family = $f else . end' "$STATE_FILE" >"$STATE_FILE.$$.tmp"
+  mv "$STATE_FILE.$$.tmp" "$STATE_FILE"
+  exec 9>&-
+  echo "Verdict for $(basename "$CASE_DIR"): $VERDICT${4:+ ($4)}"
   ;;
 list)
   find /work/cases -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
@@ -771,7 +803,7 @@ TEXT_SUFFIXES = (
     ".txt", ".json", ".log", ".md", ".js", ".jse", ".ps1", ".psm1", ".vbs", ".vbe", ".vba", ".bas", ".bat",
     ".cmd", ".hta", ".wsf", ".xml", ".html", ".htm", ".java", ".smali", ".kt", ".cs", ".c", ".py", ".sh",
 )
-SKIP_FILES = {"iocs.json", "metadata.json", "FINAL_REPORT.md", "iocs.csv", "iocs.stix.json", "iocs.lock"}
+SKIP_FILES = {"iocs.json", "metadata.json", "case.json", "FINAL_REPORT.md", "iocs.csv", "iocs.stix.json", "iocs.lock"}
 # Fixed namespace so a case's STIX ids stay the same from one export to the next.
 STIX_NS = uuid.UUID("5d1e7c1a-6f3b-4c55-9a43-3f0e3f6b2d10")
 MAX_BYTES = 20 * 1024 * 1024
@@ -1016,6 +1048,7 @@ def cmd_set(args):
             sys.exit(f"[REJECTED] Missing evidence ids: {missing}")
     for k in _find(data, args.value):
         data["iocs"][k]["status"] = args.status
+        data["iocs"][k]["status_changed"] = time.time()
         if args.evidence:
             data["iocs"][k]["evidence_ids"] = sorted(set(data["iocs"][k]["evidence_ids"]) | set(args.evidence.split(",")))
         if args.note:
@@ -1056,11 +1089,12 @@ def cmd_export(args):
     rows = _selected(data, args.all)
     name = os.path.basename(os.path.normpath(args.case_dir))
     out = os.path.join(args.case_dir, "iocs.csv")
-    with open(out, "w", newline="") as f:
+    with open(out + ".tmp", "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["type", "value", "defanged", "status", "evidence_ids", "sources"])
         for v in rows:
             w.writerow([v["type"], v["value"], defang(v["type"], v["value"]), v["status"], " ".join(v["evidence_ids"]), " ".join(v["sources"])])
+    os.replace(out + ".tmp", out)
     print(f"[IOC] Wrote {len(rows)} rows to {out}")
 
     objects = []
@@ -1082,8 +1116,10 @@ def cmd_export(args):
             report_types=["malware"], object_refs=[o.id for o in objects],
         ))
     out = os.path.join(args.case_dir, "iocs.stix.json")
-    with open(out, "w") as f:
-        f.write(stix2.Bundle(objects=objects).serialize(pretty=True))
+    bundle = stix2.Bundle(objects=objects).serialize(pretty=True)
+    with open(out + ".tmp", "w") as f:
+        f.write(bundle)
+    os.replace(out + ".tmp", out)
     print(f"[IOC] Wrote STIX 2.1 bundle with {len(rows)} indicators to {out}")
 
 
@@ -1249,7 +1285,9 @@ apply_rules() {
   iptables -I OUTPUT 1 -j "$CHAIN"
 
   # IPv6 has no proxy path, so everything but loopback and replies is dropped.
+  local v6=open
   if command -v ip6tables >/dev/null 2>&1; then
+    v6=blocked
     ip6tables -N "$CHAIN"
     ip6tables -A "$CHAIN" -o lo -j ACCEPT
     ip6tables -A "$CHAIN" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
@@ -1274,6 +1312,9 @@ apply_rules() {
     fi
   fi
   printf 'HTTPS_PROXY=%s\nHTTP_PROXY=%s\nhttps_proxy=%s\nhttp_proxy=%s\nNO_PROXY=127.0.0.1,localhost\nno_proxy=127.0.0.1,localhost\n' "$url" "$url" "$url" "$url" >"$PROXY_ENV"
+  # Read by the case console: proof the rules applied since boot (/run is a tmpfs).
+  mkdir -p /run/re-agent
+  printf 'APPLIED=%s\nIPV6=%s\n' "$(date +%s)" "$v6" >/run/re-agent/firewall.applied
 }
 
 restart_hermes() {
@@ -1307,6 +1348,7 @@ isolate)
   ;;
 unmask)
   echo "MODE=open" >"$STATE"
+  rm -f /run/re-agent/firewall.applied
   flush_chain iptables
   flush_chain ip6tables
   systemctl disable -q --now squid 2>/dev/null || true
@@ -1480,6 +1522,1780 @@ mkdir -p /opt/re-agent
 # Writes the host proxy template and the local Squid config from the allowlist.
 /usr/local/sbin/re-firewall allow api.anthropic.com >/dev/null
 msg_ok "Deployed egress quarantine"
+
+msg_info "Installing case console"
+# A web view over /work/cases on 127.0.0.1:9120: intake, case pages, IOC review
+# and report export. It changes cases only through rea-case and re-ioc.
+python3 -m venv /opt/re-console-venv
+$STD /opt/re-console-venv/bin/pip install fastapi uvicorn python-multipart pyzipper
+mkdir -p /opt/re-agent/console/static
+cat <<'RECONSOLE' >/opt/re-agent/console/app.py
+"""RE-Agent case console: a web view over /work/cases.
+
+It reads the files the agent and the CLI write (metadata.json, casebook.json,
+iocs.json, case.json) and changes cases only through the same tools (rea-case,
+re-ioc), so the console and the CLI never disagree. The one file it writes
+itself is case.json, the verdict and status that `rea-case verdict` also sets.
+It never sends a sample's bytes to the browser: binary files are shown as a
+hex dump and text is returned as JSON for the page to show as plain text."""
+import fcntl
+import hashlib
+import json
+import os
+import re
+import subprocess
+import threading
+import time
+import uuid
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+import pyzipper
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+WORK = Path(os.environ.get("RE_WORK", "/work"))
+CASES = WORK / "cases"
+SAMPLES = WORK / "samples"
+STATE = WORK / ".console"
+JOBS_DIR = STATE / "jobs"
+INCOMING = STATE / "incoming"
+ETC = Path(os.environ.get("RE_ETC", "/etc/re-agent"))
+RUN = Path(os.environ.get("RE_RUN", "/run/re-agent"))
+STATIC = Path(__file__).with_name("static")
+
+TEXT_LIMIT = 1024 * 1024
+HEX_PAGE = 64 * 1024
+HASH_LIMIT = 256 * 1024 * 1024
+UPLOAD_LIMIT = int(os.environ.get("RE_CONSOLE_UPLOAD_MB", "1024")) * 1024 * 1024
+ZIP_MEMBERS = 100
+ZIP_TOTAL = 2 * 1024 * 1024 * 1024
+VERDICTS = ("unknown", "benign", "suspicious", "malicious")
+STATUSES = ("open", "closed")
+IOC_TYPES = ("url", "domain", "ipv4", "email", "md5", "sha1", "sha256", "registry")
+IOC_STATUSES = ("candidate", "confirmed", "benign")
+DOWNLOADS = {"FINAL_REPORT.md": "text/markdown", "iocs.csv": "text/csv", "iocs.stix.json": "application/json"}
+# Files that change on every edit; the timeline shows their contents instead.
+QUIET_FILES = {"casebook.json", "iocs.json", "case.json", "metadata.json"}
+DEFAULT_STATE = {"status": "open", "verdict": "unknown", "family": "", "notes": ""}
+
+app = FastAPI(title="RE-Agent console", docs_url=None, redoc_url=None, openapi_url=None)
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["127.0.0.1", "localhost", "::1"] + os.environ.get("RE_CONSOLE_HOSTS", "").split(),
+)
+
+SECURITY_HEADERS = {
+    "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; "
+    "frame-ancestors 'none'; form-action 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+}
+
+
+@app.middleware("http")
+async def guard(request: Request, call_next):
+    # A page on another site can post a form here through the SSH tunnel, but it
+    # can't add a custom header without a CORS preflight, which never succeeds.
+    if request.method not in ("GET", "HEAD") and request.headers.get("x-re-console") != "1":
+        return JSONResponse({"detail": "Missing X-RE-Console header"}, status_code=403, headers=SECURITY_HEADERS)
+    # Refuse an oversized upload before Starlette spools it to disk.
+    if request.url.path == "/api/intake":
+        length = request.headers.get("content-length")
+        if not length or not length.isdigit():
+            return JSONResponse({"detail": "Uploads need a Content-Length"}, status_code=411, headers=SECURITY_HEADERS)
+        if int(length) > UPLOAD_LIMIT + 1024 * 1024:
+            return JSONResponse({"detail": f"The upload is larger than {UPLOAD_LIMIT // (1024 * 1024)} MB"}, status_code=413, headers=SECURITY_HEADERS)
+    response = await call_next(request)
+    response.headers.update(SECURITY_HEADERS)
+    return response
+
+
+# ---------------------------------------------------------------- helpers
+
+
+def read_json(path, default):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def write_json(path, data):
+    tmp = Path(f"{path}.{uuid.uuid4().hex[:8]}.tmp")
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(tmp, path)
+
+
+def defang(kind, value):
+    if kind in ("url", "domain", "ipv4", "email"):
+        return re.sub(r"^http", "hxxp", value, flags=re.I).replace(".", "[.]")
+    return value
+
+
+def case_dir(name):
+    if name in ("", ".", "..") or "/" in name or "\x00" in name:
+        raise HTTPException(404, "No such case")
+    path = CASES / name
+    if path.is_symlink() or not path.is_dir():
+        raise HTTPException(404, "No such case")
+    return path
+
+
+def case_state(path):
+    return {**DEFAULT_STATE, **read_json(path / "case.json", {})}
+
+
+class case_lock:
+    """The lock rea-case verdict also takes (flock on case.json.lock), so the
+    console, the CLI and intake jobs don't overwrite each other's case.json edits."""
+
+    def __init__(self, path):
+        self.file = path / "case.json.lock"
+
+    def __enter__(self):
+        self.f = open(self.file, "a")
+        fcntl.flock(self.f, fcntl.LOCK_EX)
+
+    def __exit__(self, *exc):
+        self.f.close()
+
+
+def run_tool(args, timeout=900):
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout, cwd=WORK, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, f"{args[0]} timed out")
+    except FileNotFoundError:
+        raise HTTPException(500, f"{args[0]} is not installed")
+    out = (proc.stdout + proc.stderr).strip()
+    if proc.returncode != 0:
+        raise HTTPException(400, out or f"{args[0]} failed")
+    return out
+
+
+_hash_cache = {}
+
+
+def file_facts(path):
+    """SHA-256 and file(1) type, cached by size and mtime."""
+    st = path.stat()
+    key = (str(path), st.st_size, st.st_mtime_ns)
+    if key not in _hash_cache:
+        if len(_hash_cache) > 5000:
+            _hash_cache.clear()
+        digest = None
+        if st.st_size <= HASH_LIMIT:
+            h = hashlib.sha256()
+            with open(path, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            digest = h.hexdigest()
+        try:
+            kind = subprocess.run(["file", "-b", "--", str(path)], capture_output=True, text=True, timeout=20).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            kind = ""
+        _hash_cache[key] = {"sha256": digest, "type": kind}
+    return _hash_cache[key]
+
+
+def list_files(path, limit=None):
+    out = []
+    for root, dirs, files in os.walk(path):
+        dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+        for name in sorted(files):
+            full = Path(root) / name
+            if name.endswith((".lock", ".tmp")) or full.is_symlink():
+                continue
+            st = full.stat()
+            out.append({"path": str(full.relative_to(path)), "size": st.st_size, "mtime": st.st_mtime})
+            if limit and len(out) >= limit:
+                return out
+    return out
+
+
+def ioc_counts(iocs):
+    counts = {s: 0 for s in IOC_STATUSES}
+    for v in iocs.values():
+        counts[v.get("status", "candidate")] = counts.get(v.get("status", "candidate"), 0) + 1
+    return counts
+
+
+def sha_index():
+    index = {}
+    if CASES.is_dir():
+        for meta in CASES.glob("*/metadata.json"):
+            sha = read_json(meta, {}).get("sha256")
+            if sha:
+                index[sha] = meta.parent.name
+    return index
+
+
+def network():
+    conf = {}
+    try:
+        for line in (ETC / "firewall.conf").read_text().splitlines():
+            key, _, value = line.partition("=")
+            conf[key.strip()] = value.strip()
+    except OSError:
+        pass
+    try:
+        allow = [l.strip() for l in (ETC / "egress-allow").read_text().splitlines() if l.strip() and not l.strip().startswith("#")]
+    except OSError:
+        allow = []
+    # re-firewall writes this to /run after its rules apply; /run empties at boot.
+    applied = {}
+    try:
+        for line in (RUN / "firewall.applied").read_text().splitlines():
+            key, _, value = line.partition("=")
+            applied[key.strip()] = value.strip()
+    except OSError:
+        pass
+    mode = conf.get("MODE", "open")
+    proxy, port = conf.get("PROXY_IP", ""), conf.get("PROXY_PORT", "")
+    state = "open"
+    if mode == "isolate":
+        where = "local proxy" if proxy == "local" else f"proxy {proxy}:{port}"
+        if not applied:
+            state, label = "unconfirmed", "Quarantine not confirmed"
+        elif applied.get("IPV6") != "blocked":
+            state, label = "partial", f"Quarantined ({where}), IPv6 open"
+        else:
+            state, label = "isolated", f"Quarantined: {where}"
+    else:
+        label = "Open network"
+    return {"mode": mode, "state": state, "proxy": proxy, "port": port, "applied_at": applied.get("APPLIED"),
+            "allowlist": sorted(set(allow)), "label": label}
+
+
+# ---------------------------------------------------------------- intake jobs
+
+
+class Jobs:
+    """Runs rea-case new and re-ioc extract for each upload, two at a time.
+    Each job's state and log live in /work/.console/jobs, so they outlast a restart."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.jobs = {}
+        self.pool = ThreadPoolExecutor(max_workers=2)
+        JOBS_DIR.mkdir(parents=True, exist_ok=True)
+        for f in JOBS_DIR.glob("*.json"):
+            job = read_json(f, None)
+            if not job:
+                continue
+            if job.get("state") in ("queued", "running"):
+                job.update(state="interrupted", error="The console restarted while this job ran")
+                write_json(f, job)
+            self.jobs[job["id"]] = job
+
+    def _save(self, job):
+        write_json(JOBS_DIR / f"{job['id']}.json", job)
+
+    def pending_sha(self, sha):
+        with self.lock:
+            return next((j["case"] for j in self.jobs.values() if j["sha256"] == sha and j["state"] in ("queued", "running")), None)
+
+    def submit(self, sample, case, original, sha):
+        job = {
+            "id": uuid.uuid4().hex[:12], "case": case, "sample": str(sample), "original": original, "sha256": sha,
+            "state": "queued", "created": time.time(), "finished": None, "error": None,
+        }
+        with self.lock:
+            self.jobs[job["id"]] = job
+            self._save(job)
+        self.pool.submit(self._run, job)
+        return job
+
+    def _run(self, job):
+        with self.lock:
+            job["state"] = "running"
+            self._save(job)
+        error = None
+        try:
+            error = self._steps(job)
+            if error is None:
+                path = CASES / job["case"]
+                with case_lock(path):
+                    state = case_state(path)
+                    state.setdefault("intake", {"original_name": job["original"], "uploaded_at": job["created"], "via": "console"})
+                    write_json(path / "case.json", state)
+        except Exception as e:  # noqa: BLE001 - any failure must still end the job
+            error = f"{type(e).__name__}: {e}"
+        finally:
+            with self.lock:
+                job.update(state="failed" if error else "done", error=error, finished=time.time())
+                try:
+                    self._save(job)
+                except OSError:
+                    pass
+
+    def _steps(self, job):
+        steps = (["rea-case", "new", job["sample"]], ["re-ioc", "extract", str(CASES / job["case"])])
+        with open(JOBS_DIR / f"{job['id']}.log", "w") as log:
+            for args in steps:
+                log.write(f"$ {' '.join(args)}\n")
+                log.flush()
+                try:
+                    proc = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, cwd=WORK, timeout=3600)
+                except (OSError, subprocess.TimeoutExpired) as e:
+                    return f"{args[0]}: {e}"
+                if proc.returncode != 0:
+                    return f"{args[0]} exited with status {proc.returncode}"
+        return None
+
+    def retry(self, job_id):
+        with self.lock:
+            job = self.jobs.get(job_id)
+            if not job:
+                raise HTTPException(404, "No such job")
+            if job["state"] not in ("failed", "interrupted"):
+                raise HTTPException(409, "Only a failed or interrupted job can be retried")
+            if not Path(job["sample"]).is_file():
+                raise HTTPException(410, "The sample file is gone; upload it again")
+            job.update(state="queued", error=None, finished=None, created=time.time())
+            self._save(job)
+        self.pool.submit(self._run, job)
+        return job
+
+    def failed_for(self, case):
+        with self.lock:
+            return next((j["id"] for j in self.jobs.values() if j["case"] == case and j["state"] in ("failed", "interrupted")), None)
+
+    def listing(self, limit=20):
+        with self.lock:
+            return sorted(self.jobs.values(), key=lambda j: j["created"], reverse=True)[:limit]
+
+    def get(self, job_id):
+        with self.lock:
+            job = self.jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "No such job")
+        try:
+            with open(JOBS_DIR / f"{job_id}.log", "rb") as f:
+                f.seek(0, os.SEEK_END)
+                f.seek(max(0, f.tell() - 8192))
+                tail = f.read().decode(errors="replace")
+        except OSError:
+            tail = ""
+        return {**job, "log": tail}
+
+
+jobs = Jobs()
+_intake_lock = threading.Lock()
+
+
+def safe_name(name):
+    name = name.replace("\\", "/").rsplit("/", 1)[-1]
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", name).lstrip(".-")[:120]
+    return name or "sample"
+
+
+def unique_name(name, sha):
+    stem, dot, ext = name.partition(".")
+    candidate, n = name, 0
+    while (SAMPLES / candidate).exists() or (CASES / candidate).exists():
+        n += 1
+        tag = sha[:8] if n == 1 else f"{sha[:8]}-{n}"
+        candidate = f"{stem}-{tag}{dot}{ext}"
+    return candidate
+
+
+def _copy_hashed(src, dst, limit, label):
+    h, total = hashlib.sha256(), 0
+    with open(dst, "wb") as out:
+        for chunk in iter(lambda: src.read(1 << 20), b""):
+            total += len(chunk)
+            if total > limit:
+                raise HTTPException(413, f"{label} is larger than {limit // (1024 * 1024)} MB")
+            h.update(chunk)
+            out.write(chunk)
+    return h.hexdigest()
+
+
+def _unzip(archive, password):
+    items, total = [], 0
+    try:
+        with pyzipper.AESZipFile(archive) as z:
+            if password:
+                z.setpassword(password.encode())
+            members = [i for i in z.infolist() if not i.is_dir()]
+            if not members:
+                raise HTTPException(400, "The archive is empty")
+            if len(members) > ZIP_MEMBERS:
+                raise HTTPException(400, f"The archive holds more than {ZIP_MEMBERS} files")
+            for info in members:
+                dst = INCOMING / uuid.uuid4().hex
+                items.append((info.filename, dst, None))
+                with z.open(info) as src:
+                    sha = _copy_hashed(src, dst, ZIP_TOTAL - total, "The unpacked archive")
+                total += dst.stat().st_size
+                items[-1] = (info.filename, dst, sha)
+    except BaseException as e:
+        # Any failure, a corrupt member included, leaves nothing behind in incoming/.
+        for _n, p, _s in items:
+            p.unlink(missing_ok=True)
+        if isinstance(e, HTTPException):
+            raise
+        if isinstance(e, RuntimeError) and "password" in str(e).lower():
+            raise HTTPException(400, "Wrong archive password" if password else "The archive needs a password")
+        if isinstance(e, Exception):
+            raise HTTPException(400, f"Could not unpack the archive: {e}")
+        raise
+    return items
+
+
+# ---------------------------------------------------------------- API
+
+
+@app.get("/api/status")
+def status():
+    return {"network": network(), "hermes_dashboard_port": 9119, "cases_dir": str(CASES)}
+
+
+@app.get("/api/cases")
+def cases():
+    out = []
+    if not CASES.is_dir():
+        return out
+    for path in sorted(p for p in CASES.iterdir() if p.is_dir() and not p.is_symlink() and not p.name.startswith(".")):
+        meta = read_json(path / "metadata.json", {})
+        book = read_json(path / "casebook.json", {})
+        iocs = read_json(path / "iocs.json", {}).get("iocs", {})
+        files = list_files(path)
+        last = max([f["mtime"] for f in files] + [path.stat().st_mtime])
+        out.append({
+            "name": path.name, "type": meta.get("file_type", ""), "sha256": meta.get("sha256", ""),
+            "size": meta.get("file_size_bytes"), "created": meta.get("created_at"), "last_activity": last,
+            "evidence": len(book.get("evidence", {})), "claims": len(book.get("verified_claims", [])),
+            "iocs": ioc_counts(iocs), "has_report": (path / "FINAL_REPORT.md").exists(), **case_state(path),
+        })
+    return sorted(out, key=lambda c: c["last_activity"], reverse=True)
+
+
+@app.get("/api/cases/{name}")
+def case(name: str):
+    path = case_dir(name)
+    meta = read_json(path / "metadata.json", {})
+    book = read_json(path / "casebook.json", {})
+    iocs = read_json(path / "iocs.json", {}).get("iocs", {})
+    evidence = book.get("evidence", {})
+    claims = book.get("verified_claims", [])
+    cited = {}
+    for i, c in enumerate(claims):
+        for eid in c.get("evidence_ids", []):
+            cited.setdefault(eid, []).append(i)
+    children = []
+    for f in list_files(path):
+        if f["path"].startswith("children/"):
+            children.append({**f, **file_facts(path / f["path"])})
+    return {
+        "name": name, "metadata": meta, "state": case_state(path),
+        "evidence": [{"id": k, **v, "cited_by": cited.get(k, [])} for k, v in sorted(evidence.items(), key=lambda kv: kv[1].get("timestamp") or 0)],
+        "claims": claims, "iocs": ioc_counts(iocs),
+        "key_iocs": [{**v, "defanged": defang(v["type"], v["value"])} for v in iocs.values() if v.get("status") == "confirmed"],
+        "children": children[:500],
+        "artifacts": [n for n in DOWNLOADS if (path / n).exists()],
+        "has_notes": (path / "report_notes.md").exists(),
+    }
+
+
+class CaseUpdate(BaseModel):
+    status: str | None = None
+    verdict: str | None = None
+    family: str | None = None
+    notes: str | None = None
+
+
+@app.patch("/api/cases/{name}")
+def update_case(name: str, body: CaseUpdate):
+    path = case_dir(name)
+    with case_lock(path):
+        return _update_state(path, body)
+
+
+def _update_state(path, body):
+    state = case_state(path)
+    if body.status is not None:
+        if body.status not in STATUSES:
+            raise HTTPException(400, f"Status must be one of {', '.join(STATUSES)}")
+        state["status"] = body.status
+    if body.verdict is not None:
+        if body.verdict not in VERDICTS:
+            raise HTTPException(400, f"Verdict must be one of {', '.join(VERDICTS)}")
+        state["verdict"] = body.verdict
+    if body.family is not None:
+        state["family"] = body.family.strip()[:100]
+    if body.notes is not None:
+        state["notes"] = body.notes[:20000]
+    write_json(path / "case.json", state)
+    return state
+
+
+@app.get("/api/cases/{name}/files")
+def files(name: str):
+    return list_files(case_dir(name), limit=5000)
+
+
+@app.get("/api/cases/{name}/file")
+def file_view(name: str, path: str, offset: int = 0):
+    base = case_dir(name).resolve()
+    full = (base / path).resolve()
+    if base not in full.parents or not full.is_file():
+        raise HTTPException(404, "No such file")
+    size = full.stat().st_size
+    with open(full, "rb") as f:
+        head = f.read(8192)
+    binary = path.startswith("children/") or b"\x00" in head
+    if not binary:
+        try:
+            head.decode("utf-8")
+        except UnicodeDecodeError as e:
+            # A multi-byte character cut at the 8 KB mark is still text.
+            binary = e.start < len(head) - 4
+    if binary:
+        offset = max(0, min(offset - offset % 16, max(0, size - 1)))
+        with open(full, "rb") as f:
+            f.seek(offset)
+            data = f.read(HEX_PAGE)
+        lines = []
+        for i in range(0, len(data), 16):
+            chunk = data[i : i + 16]
+            hexes = " ".join(f"{b:02x}" for b in chunk)
+            text = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+            lines.append(f"{offset + i:08x}  {hexes:<47}  {text}")
+        return {"kind": "hex", "content": "\n".join(lines), "size": size, "offset": offset, "next": offset + len(data) if offset + len(data) < size else None}
+    with open(full, "rb") as f:
+        data = f.read(TEXT_LIMIT)
+    return {"kind": "text", "content": data.decode("utf-8", errors="replace"), "size": size, "truncated": size > TEXT_LIMIT}
+
+
+@app.get("/api/cases/{name}/timeline")
+def timeline(name: str):
+    path = case_dir(name)
+    meta = read_json(path / "metadata.json", {})
+    book = read_json(path / "casebook.json", {})
+    iocs = read_json(path / "iocs.json", {}).get("iocs", {})
+    events = []
+    if meta.get("created_at"):
+        events.append({"t": meta["created_at"], "kind": "case", "text": "Case created", "detail": meta.get("file_type", "")})
+    for eid, e in book.get("evidence", {}).items():
+        events.append({"t": e.get("timestamp"), "kind": "evidence", "text": f"Evidence {eid} recorded", "detail": f"{e.get('category', '')}: {str(e.get('content', ''))[:300]}"})
+    for c in book.get("verified_claims", []):
+        events.append({"t": c.get("timestamp"), "kind": "claim", "text": "Claim verified", "detail": f"{c.get('claim', '')} [{', '.join(c.get('evidence_ids', []))}]"})
+    batches = {}
+    for v in iocs.values():
+        if v.get("first_seen"):
+            batches.setdefault(int(v["first_seen"] // 60), []).append(v)
+        if v.get("status_changed"):
+            events.append({"t": v["status_changed"], "kind": "ioc", "text": f"IOC marked {v.get('status')}", "detail": f"{v['type']} {defang(v['type'], v['value'])}"})
+    for batch in batches.values():
+        sources = sorted({s for v in batch for s in v.get("sources", [])})
+        events.append({"t": min(v["first_seen"] for v in batch), "kind": "ioc", "text": f"{len(batch)} IOC candidate{'s' if len(batch) != 1 else ''} added", "detail": ", ".join(sources[:6])})
+    # Tool output trees (jadx, boxjs) can hold thousands of files: one event per folder.
+    folders = {}
+    for f in list_files(path):
+        top, sep, _rest = f["path"].partition("/")
+        if sep and top != "children":
+            folders.setdefault(top, []).append(f)
+        elif f["path"] not in QUIET_FILES:
+            events.append({"t": f["mtime"], "kind": "file", "text": f"{f['path']} written", "detail": f"{f['size']} bytes", "path": f["path"]})
+    for top, fs in folders.items():
+        events.append({"t": max(f["mtime"] for f in fs), "kind": "file", "text": f"{top}/ written", "detail": f"{len(fs)} file{'s' if len(fs) != 1 else ''}, {sum(f['size'] for f in fs)} bytes"})
+    return sorted((e for e in events if e["t"]), key=lambda e: e["t"], reverse=True)
+
+
+@app.get("/api/cases/{name}/iocs")
+def iocs(name: str):
+    data = read_json(case_dir(name) / "iocs.json", {}).get("iocs", {})
+    return [{"key": k, **v, "defanged": defang(v["type"], v["value"])} for k, v in sorted(data.items(), key=lambda kv: (kv[1]["type"], kv[1]["value"]))]
+
+
+@app.post("/api/cases/{name}/iocs/extract")
+def iocs_extract(name: str):
+    return {"output": run_tool(["re-ioc", "extract", str(case_dir(name))])}
+
+
+class IocAdd(BaseModel):
+    type: str
+    value: str
+
+
+@app.post("/api/cases/{name}/iocs")
+def iocs_add(name: str, body: IocAdd):
+    if body.type not in IOC_TYPES:
+        raise HTTPException(400, "Unknown IOC type")
+    return {"output": run_tool(["re-ioc", "add", "--", str(case_dir(name)), body.type, body.value])}
+
+
+class IocSet(BaseModel):
+    key: str
+    status: str
+    evidence: list[str] = []
+    note: str | None = None
+
+
+@app.post("/api/cases/{name}/iocs/status")
+def iocs_status(name: str, body: IocSet):
+    if body.status not in IOC_STATUSES:
+        raise HTTPException(400, "Unknown IOC status")
+    if any("," in e or not e.strip() for e in body.evidence):
+        raise HTTPException(400, "Evidence ids can't be empty or contain commas")
+    args = ["re-ioc", "set"]
+    if body.evidence:
+        args += ["--evidence", ",".join(e.strip() for e in body.evidence)]
+    if body.note:
+        args += ["--note", body.note[:2000]]
+    return {"output": run_tool(args + ["--", str(case_dir(name)), body.key, body.status])}
+
+
+class Export(BaseModel):
+    include_candidates: bool = False
+
+
+@app.post("/api/cases/{name}/export")
+def export(name: str, body: Export):
+    path = case_dir(name)
+    out = []
+    if (path / "iocs.json").exists():
+        out.append(run_tool(["re-ioc", "export", str(path)] + (["--all"] if body.include_candidates else [])))
+    out.append(run_tool(["rea-case", "export", name]))
+    return {"output": "\n".join(out), "artifacts": [n for n in DOWNLOADS if (path / n).exists()]}
+
+
+@app.get("/api/cases/{name}/download/{artifact}")
+def download(name: str, artifact: str):
+    if artifact not in DOWNLOADS:
+        raise HTTPException(404, "Not a case export")
+    base = case_dir(name).resolve()
+    full = base / artifact
+    if full.is_symlink() or full.resolve().parent != base or not full.is_file():
+        raise HTTPException(404, "Not exported yet")
+    return FileResponse(full, media_type=DOWNLOADS[artifact], filename=f"{name}-{artifact}")
+
+
+@app.post("/api/intake")
+def intake(file: UploadFile = File(...), password: str = Form("infected"), unpack: bool = Form(True)):
+    for d in (INCOMING, SAMPLES):
+        d.mkdir(parents=True, exist_ok=True)
+    upload = INCOMING / uuid.uuid4().hex
+    original = file.filename or "sample"
+    try:
+        sha = _copy_hashed(file.file, upload, UPLOAD_LIMIT, "The upload")
+    except HTTPException:
+        upload.unlink(missing_ok=True)
+        raise
+    if unpack and zipfile.is_zipfile(upload):
+        try:
+            items = _unzip(upload, password)
+        finally:
+            upload.unlink(missing_ok=True)
+    else:
+        items = [(original, upload, sha)]
+    results = []
+    # One intake at a time picks names and checks hashes, so two uploads can't
+    # claim the same sample path or both start a case for the same bytes.
+    with _intake_lock:
+        known = sha_index()
+        for orig, tmp, digest in items:
+            dup = known.get(digest) or jobs.pending_sha(digest)
+            if dup:
+                tmp.unlink(missing_ok=True)
+                results.append({"name": orig, "sha256": digest, "duplicate_of": dup, "retry_job": jobs.failed_for(dup)})
+                continue
+            name = unique_name(safe_name(orig), digest)
+            dest = SAMPLES / name
+            os.replace(tmp, dest)
+            os.chmod(dest, 0o640)
+            job = jobs.submit(dest, name, orig, digest)
+            known[digest] = name
+            results.append({"name": orig, "sha256": digest, "case": name, "job": job["id"]})
+    return {"results": results}
+
+
+@app.get("/api/jobs")
+def job_list():
+    return jobs.listing()
+
+
+@app.get("/api/jobs/{job_id}")
+def job(job_id: str):
+    return jobs.get(job_id)
+
+
+@app.post("/api/jobs/{job_id}/retry")
+def job_retry(job_id: str):
+    return jobs.retry(job_id)
+
+
+@app.get("/")
+def index():
+    return FileResponse(STATIC / "index.html", media_type="text/html")
+
+
+app.mount("/static", StaticFiles(directory=STATIC), name="static")
+RECONSOLE
+cat <<'RECONSOLE' >/opt/re-agent/console/static/index.html
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RE-Agent Console</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23e5484d'/%3E%3Ctext x='16' y='21.5' font-family='monospace' font-size='14' font-weight='700' text-anchor='middle' fill='white'%3ERE%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/"><span class="mark">RE</span><span class="brand-name">RE-Agent <span class="dim">Console</span></span></a>
+  <nav class="topnav"><a href="#/" data-nav="cases">Cases</a></nav>
+  <div class="topbar-right">
+    <button class="netpill" id="netpill" type="button" aria-haspopup="true" aria-expanded="false"><span class="dot"></span><span id="netlabel">Checking network…</span></button>
+    <div class="netpop" id="netpop" hidden></div>
+    <a class="btn btn-ghost" id="hermes-link" href="http://127.0.0.1:9119/" target="_blank" rel="noopener noreferrer">Open Hermes</a>
+  </div>
+</header>
+<div class="openbanner" id="openbanner" hidden>
+  <strong>The network is open.</strong> Samples and tools can reach the internet. Before handling samples, run <code>re-firewall isolate local</code> as root.
+</div>
+<main id="app" class="main" tabindex="-1"></main>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
+RECONSOLE
+cat <<'RECONSOLE' >/opt/re-agent/console/static/app.css
+:root {
+  --bg: #0e1013;
+  --panel: #15181d;
+  --panel-2: #1b1f26;
+  --line: #262b33;
+  --line-2: #323844;
+  --text: #e6e8eb;
+  --muted: #9aa3ae;
+  --dim: #6b7480;
+  --accent: #5b8def;
+  --accent-soft: rgba(91, 141, 239, 0.14);
+  --red: #e5484d;
+  --red-soft: rgba(229, 72, 77, 0.14);
+  --amber: #f0a43a;
+  --amber-soft: rgba(240, 164, 58, 0.14);
+  --green: #3dbb7a;
+  --green-soft: rgba(61, 187, 122, 0.14);
+  --violet: #a37cf0;
+  --violet-soft: rgba(163, 124, 240, 0.14);
+  --radius: 10px;
+  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --panel-2: #f0f2f5;
+    --line: #e2e5ea;
+    --line-2: #d3d8df;
+    --text: #15181d;
+    --muted: #5a6370;
+    --dim: #8a929d;
+    --accent: #2f6fe0;
+    --accent-soft: rgba(47, 111, 224, 0.1);
+    --red: #d1343a;
+    --red-soft: rgba(209, 52, 58, 0.1);
+    --amber: #b86e00;
+    --amber-soft: rgba(184, 110, 0, 0.1);
+    --green: #1d8a54;
+    --green-soft: rgba(29, 138, 84, 0.1);
+    --violet: #7445d6;
+    --violet-soft: rgba(116, 69, 214, 0.1);
+    color-scheme: light;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: var(--mono); font-size: 12.5px; }
+code { background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+h1 { font-size: 22px; }
+h2 { font-size: 15px; }
+h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.dim { color: var(--dim); }
+.muted { color: var(--muted); }
+[hidden] { display: none !important; }
+
+/* top bar */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 24px;
+  padding: 10px 24px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 600; }
+.brand:hover { text-decoration: none; }
+.mark {
+  display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 7px;
+  background: var(--red); color: #fff; font: 700 12px/1 var(--mono);
+}
+.topnav a { color: var(--muted); padding: 6px 10px; border-radius: 6px; }
+.topnav a.active, .topnav a:hover { color: var(--text); background: var(--panel-2); text-decoration: none; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; position: relative; }
+
+.netpill {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--line-2); background: var(--panel); color: var(--text);
+  padding: 6px 12px; border-radius: 999px; font: 500 13px var(--sans); cursor: pointer;
+}
+.netpill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+.netpill.safe { border-color: color-mix(in srgb, var(--green) 45%, transparent); background: var(--green-soft); }
+.netpill.safe .dot { background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+.netpill.warn { border-color: color-mix(in srgb, var(--amber) 55%, transparent); background: var(--amber-soft); }
+.netpill.warn .dot { background: var(--amber); }
+.netpill.open { border-color: color-mix(in srgb, var(--red) 55%, transparent); background: var(--red-soft); }
+.netpill.open .dot { background: var(--red); box-shadow: 0 0 0 3px var(--red-soft); animation: pulse 1.6s infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 6px transparent; } }
+.netpop {
+  position: absolute; top: calc(100% + 8px); right: 120px; width: 340px; z-index: 30;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35); padding: 14px 16px;
+}
+.netpop ul { margin: 6px 0 0; padding-left: 18px; }
+.netpop p { margin: 0 0 8px; color: var(--muted); }
+.openbanner {
+  background: var(--red); color: #fff; padding: 9px 24px; font-size: 13.5px;
+}
+.openbanner.warn { background: var(--amber); color: #1a1205; }
+.openbanner.warn code { color: #1a1205; background: rgba(0, 0, 0, 0.12); }
+.openbanner code { background: rgba(0, 0, 0, 0.22); border-color: transparent; color: #fff; }
+
+.main { max-width: 1280px; margin: 0 auto; padding: 24px; outline: none; }
+
+/* buttons and inputs */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 32px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-2);
+  background: var(--panel-2); color: var(--text); font: 500 13px var(--sans); cursor: pointer; white-space: nowrap;
+}
+.btn:hover { border-color: var(--dim); text-decoration: none; }
+.btn:disabled { opacity: 0.55; cursor: default; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-primary:hover { filter: brightness(1.08); border-color: var(--accent); }
+.btn-ghost { background: transparent; }
+.btn-danger { color: var(--red); }
+.btn-sm { height: 26px; padding: 0 9px; font-size: 12px; border-radius: 6px; }
+.btn-icon { width: 26px; padding: 0; }
+input[type=text], input[type=password], input[type=search], select, textarea {
+  height: 32px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--line-2);
+  background: var(--panel); color: var(--text); font: 13px var(--sans); min-width: 0;
+}
+textarea { height: auto; padding: 8px 10px; resize: vertical; line-height: 1.45; }
+input:focus, select:focus, textarea:focus, .btn:focus-visible, .netpill:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 1px; border-color: var(--accent);
+}
+label.check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; cursor: pointer; }
+
+/* layout pieces */
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.page-head .sub { color: var(--muted); margin-top: 4px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px 0; }
+.card-body { padding: 14px 16px 16px; }
+.grid { display: grid; gap: 16px; }
+.grid-2 { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+.grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 960px) { .grid-2, .grid-3 { grid-template-columns: minmax(0, 1fr); } }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.spacer { flex: 1; }
+.stack > * + * { margin-top: 16px; }
+
+/* intake */
+.intake { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 0; overflow: hidden; }
+.intake-main { display: flex; flex-direction: column; }
+.intake-main .drop { flex: 1; }
+@media (max-width: 860px) { .intake { grid-template-columns: minmax(0, 1fr); } }
+.drop {
+  margin: 14px; border: 1.5px dashed var(--line-2); border-radius: 9px; padding: 26px 20px;
+  display: flex; align-items: center; gap: 18px; cursor: pointer; transition: border-color .15s, background .15s;
+}
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop .glyph {
+  flex: none; width: 44px; height: 44px; border-radius: 10px; display: grid; place-items: center;
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted); font: 600 20px var(--mono);
+}
+.drop strong { display: block; font-size: 14.5px; }
+.drop span { color: var(--muted); font-size: 13px; }
+.intake-opts { border-left: 1px solid var(--line); padding: 16px; display: flex; flex-direction: column; gap: 10px; background: var(--panel-2); }
+@media (max-width: 860px) { .intake-opts { border-left: 0; border-top: 1px solid var(--line); } }
+.intake-opts label.field { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 12px; }
+.progress { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin: 0 14px 12px; }
+.progress > div { height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+.results { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 6px; }
+.result { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 7px; background: var(--panel-2); font-size: 13px; }
+
+/* jobs */
+.jobs { display: flex; flex-direction: column; gap: 8px; }
+.job { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.job-head { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; }
+.job-log { margin: 0; border-top: 1px solid var(--line); max-height: 240px; }
+.spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--accent); animation: spin .8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* chips and badges */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  height: 28px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--line-2);
+  background: transparent; color: var(--muted); font: 500 12.5px var(--sans); cursor: pointer;
+}
+.chip:hover { color: var(--text); }
+.chip.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+.chip .n { opacity: 0.6; margin-left: 4px; }
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 6px;
+  font: 600 11.5px var(--sans); letter-spacing: 0.02em; white-space: nowrap;
+  background: var(--panel-2); color: var(--muted); border: 1px solid var(--line);
+}
+.badge.malicious, .badge.suspicious, .badge.benign, .badge.unknown, .badge.candidate, .badge.confirmed, .badge.open, .badge.closed, .badge.done, .badge.failed, .badge.queued, .badge.running, .badge.interrupted { text-transform: capitalize; }
+.badge.malicious, .badge.failed, .badge.interrupted { background: var(--red-soft); color: var(--red); border-color: transparent; }
+.badge.suspicious, .badge.candidate, .badge.running, .badge.queued { background: var(--amber-soft); color: var(--amber); border-color: transparent; }
+.badge.benign, .badge.done { background: var(--green-soft); color: var(--green); border-color: transparent; }
+.badge.confirmed { background: var(--red-soft); color: var(--red); border-color: transparent; }
+.badge.open { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.badge.closed { color: var(--dim); }
+
+/* tables */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; font: 600 11.5px var(--sans); text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim);
+  padding: 10px 14px; border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+td { padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+tbody tr.link { cursor: pointer; }
+tbody tr.link:hover td { background: var(--panel-2); }
+td.num { font-variant-numeric: tabular-nums; color: var(--muted); }
+.case-name { font-weight: 600; color: var(--text); }
+.case-type { color: var(--dim); font-size: 12.5px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty { padding: 48px 20px; text-align: center; color: var(--muted); }
+.empty strong { display: block; color: var(--text); font-size: 15px; margin-bottom: 4px; }
+
+/* case view */
+.crumbs { color: var(--dim); font-size: 13px; margin-bottom: 8px; }
+.crumbs a { color: var(--muted); }
+.case-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hashline { display: flex; align-items: center; gap: 6px; color: var(--muted); margin-top: 6px; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 20px 0 18px; overflow-x: auto; }
+.tab {
+  padding: 9px 14px; color: var(--muted); border: 0; background: none; font: 500 13.5px var(--sans); cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap;
+}
+.tab:hover { color: var(--text); }
+.tab.on { color: var(--text); border-bottom-color: var(--accent); }
+.tab .n { color: var(--dim); margin-left: 5px; font-size: 12px; }
+.kv { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 7px 12px; align-items: center; }
+.kv dt { color: var(--dim); font-size: 12.5px; }
+.kv dd { margin: 0; font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.stat { background: var(--panel-2); border-radius: 8px; padding: 10px 12px; }
+.stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--dim); font-size: 12px; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.form-grid .full { grid-column: 1 / -1; }
+.list { display: flex; flex-direction: column; }
+.list-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.list-item:last-child { border-bottom: 0; }
+.tree { font-family: var(--mono); font-size: 12.5px; }
+.tree .node { display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.tree .node:last-child { border-bottom: 0; }
+.tree .branch { color: var(--dim); }
+.prompt-box { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-family: var(--mono); font-size: 12.5px; }
+
+/* timeline */
+.timeline { position: relative; padding-left: 22px; }
+.timeline::before { content: ""; position: absolute; left: 6px; top: 6px; bottom: 6px; width: 2px; background: var(--line); }
+.event { position: relative; padding: 0 0 18px; }
+.event::before {
+  content: ""; position: absolute; left: -21px; top: 5px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--panel); border: 2px solid var(--dim);
+}
+.event.evidence::before { border-color: var(--accent); }
+.event.claim::before { border-color: var(--green); background: var(--green); }
+.event.ioc::before { border-color: var(--amber); }
+.event.case::before { border-color: var(--violet); background: var(--violet); }
+.event .when { color: var(--dim); font-size: 12px; }
+.event .what { font-weight: 500; }
+.event .detail { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+
+/* evidence */
+.claim { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.claim:last-child { border-bottom: 0; }
+.eid { font: 600 11.5px var(--mono); color: var(--accent); background: var(--accent-soft); padding: 1px 6px; border-radius: 5px; cursor: pointer; border: 0; }
+tr.flash td { animation: flash 1.4s; }
+@keyframes flash { 0%, 40% { background: var(--accent-soft); } }
+.content-cell { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 620px; }
+
+/* files */
+.files { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .files { grid-template-columns: minmax(0, 1fr); } }
+.file-list { max-height: 70vh; overflow: auto; padding: 6px; }
+.file-list .hint { padding: 8px 10px 4px; font-size: 12px; color: var(--dim); }
+.file-item {
+  display: flex; justify-content: space-between; gap: 10px; width: 100%; text-align: left; padding: 7px 10px;
+  border: 0; border-radius: 6px; background: none; color: var(--text); font: 12.5px var(--mono); cursor: pointer;
+}
+.file-item:hover { background: var(--panel-2); }
+.file-item.on { background: var(--accent-soft); color: var(--accent); }
+.file-item .size { color: var(--dim); flex: none; }
+.file-item .p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+pre.viewer, pre.job-log {
+  margin: 0; padding: 14px 16px; overflow: auto; font: 12.5px/1.55 var(--mono); color: var(--text);
+  background: var(--panel-2); white-space: pre; tab-size: 4;
+}
+pre.viewer { max-height: 70vh; border-radius: 0 0 var(--radius) var(--radius); margin-top: 14px; border-top: 1px solid var(--line); }
+pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* iocs */
+.ioc-value { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.sources { color: var(--dim); font-size: 12px; font-family: var(--mono); overflow-wrap: anywhere; }
+.confirm-box { margin-top: 8px; padding: 10px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel-2); display: flex; flex-direction: column; gap: 8px; }
+.confirm-box .ev-pick { display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow: auto; }
+.confirm-box .ev-pick label { display: inline-flex; gap: 5px; align-items: center; font: 12px var(--mono); padding: 3px 7px; border: 1px solid var(--line-2); border-radius: 6px; cursor: pointer; }
+
+/* report */
+.md { padding: 6px 4px; max-width: 860px; }
+.md h1 { font-size: 22px; margin: 4px 0 12px; }
+.md h2 { font-size: 17px; margin: 22px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.md h3 { font-size: 14px; margin: 18px 0 6px; text-transform: none; letter-spacing: 0; color: var(--text); }
+.md p { margin: 8px 0; }
+.md ul { margin: 6px 0; padding-left: 22px; }
+.md li { margin: 3px 0; }
+.md table { margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; }
+.md td, .md th { padding: 7px 10px; }
+.md pre { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow: auto; font: 12.5px var(--mono); }
+
+/* toasts */
+.toasts { position: fixed; right: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 50; max-width: 420px; }
+.toast {
+  background: var(--panel); border: 1px solid var(--line-2); border-left: 3px solid var(--accent); border-radius: 8px;
+  padding: 10px 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.toast.err { border-left-color: var(--red); }
+.toast.ok { border-left-color: var(--green); }
+.loading { padding: 40px; text-align: center; color: var(--dim); }
+RECONSOLE
+cat <<'RECONSOLE' >/opt/re-agent/console/static/app.js
+"use strict";
+// RE-Agent console front end. Everything is built with DOM calls and
+// textContent: case data comes from samples, so none of it is parsed as HTML.
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const app = $("#app");
+
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "dataset") Object.assign(el.dataset, v);
+    else if (v === true) el.setAttribute(k, "");
+    else el.setAttribute(k, v);
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid === null || kid === undefined || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+
+async function api(path, opts = {}) {
+  const init = { method: opts.method || "GET", headers: { "X-RE-Console": "1" } };
+  if (opts.body !== undefined) {
+    init.headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(opts.body);
+  }
+  const res = await fetch(path, init);
+  let data = null;
+  try { data = await res.json(); } catch (_) { /* empty body */ }
+  if (!res.ok) throw new Error((data && data.detail) ? (typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)) : res.statusText);
+  return data;
+}
+
+function toast(msg, kind = "") {
+  const el = h("div", { class: `toast ${kind}` }, msg);
+  $("#toasts").append(el);
+  setTimeout(() => el.remove(), kind === "err" ? 9000 : 4500);
+}
+
+async function copy(text, what = "Copied") {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (_) {
+    const ta = h("textarea", {}, text);
+    document.body.append(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+  }
+  toast(what, "ok");
+}
+
+const copyBtn = (text, label = "Copy", what) => h("button", { class: "btn btn-sm btn-ghost", type: "button", title: "Copy to clipboard", onclick: (e) => { e.stopPropagation(); copy(text, what); } }, label);
+
+function ago(t) {
+  if (!t) return "";
+  const s = Math.max(0, Date.now() / 1000 - t);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  if (s < 86400 * 30) return `${Math.floor(s / 86400)} d ago`;
+  return new Date(t * 1000).toLocaleDateString();
+}
+const stamp = (t) => (t ? new Date(t * 1000).toLocaleString() : "");
+function bytes(n) {
+  if (n === null || n === undefined) return "";
+  const u = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return `${n < 10 && i ? n.toFixed(1) : Math.round(n)} ${u[i]}`;
+}
+const shortType = (t) => (t || "").split(",")[0];
+const badge = (v, text) => h("span", { class: `badge ${v}` }, text || v);
+const caseHref = (name, tab) => `#/case/${encodeURIComponent(name)}${tab ? "/" + tab : ""}`;
+
+// ------------------------------------------------------------ network pill
+
+async function loadStatus() {
+  try {
+    const s = await api("/api/status");
+    const n = s.network;
+    const pill = $("#netpill");
+    pill.className = `netpill ${{ isolated: "safe", open: "open" }[n.state] || "warn"}`;
+    $("#netlabel").textContent = n.label;
+    const banner = $("#openbanner");
+    banner.hidden = n.state === "isolated";
+    banner.className = `openbanner ${n.state === "open" ? "" : "warn"}`;
+    banner.replaceChildren(...{
+      open: [h("strong", {}, "The network is open."), " Samples and tools can reach the internet. Before handling samples, run ", h("code", {}, "re-firewall isolate local"), " as root."],
+      unconfirmed: [h("strong", {}, "The quarantine is set but not confirmed."), " Its rules haven't been applied since this guest booted. Check with ", h("code", {}, "re-firewall status"), " as root, and re-apply with ", h("code", {}, "re-firewall apply"), "."],
+      partial: [h("strong", {}, "IPv6 egress is not blocked."), " The IPv4 quarantine is on, but ip6tables wasn't available. Install it and run ", h("code", {}, "re-firewall apply"), " as root."],
+    }[n.state] || []);
+    const pop = $("#netpop");
+    pop.replaceChildren(
+      h("h2", {}, { isolated: "Egress quarantine is on", open: "Egress quarantine is off", partial: "Quarantine on, IPv6 open", unconfirmed: "Quarantine not confirmed" }[n.state]),
+      h("p", {}, {
+        isolated: `Outbound traffic goes only to these hosts, through the proxy. IPv6 is blocked. Rules applied ${stamp(Number(n.applied_at))}.`,
+        open: "Nothing limits outbound traffic. Run re-firewall isolate local as root to turn the quarantine on.",
+        partial: "IPv4 goes only to these hosts, through the proxy, but IPv6 is not blocked.",
+        unconfirmed: "The quarantine is configured, but re-firewall hasn't confirmed applying its rules since boot.",
+      }[n.state]),
+      h("h3", {}, `Allowed hosts (${n.allowlist.length})`),
+      h("ul", {}, n.allowlist.map((a) => h("li", { class: "mono" }, a))),
+      h("p", { class: "dim" }, "Change it as root with re-firewall allow or deny. The console can't change it."),
+    );
+    $("#hermes-link").href = `http://127.0.0.1:${s.hermes_dashboard_port}/`;
+  } catch (e) {
+    $("#netlabel").textContent = "Network status unknown";
+  }
+}
+$("#netpill").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const pop = $("#netpop");
+  pop.hidden = !pop.hidden;
+  $("#netpill").setAttribute("aria-expanded", String(!pop.hidden));
+});
+document.addEventListener("click", (e) => { if (!$("#netpop").contains(e.target)) $("#netpop").hidden = true; });
+
+// ------------------------------------------------------------ dashboard
+
+const dash = { filter: "all", query: "", cases: [], jobs: [], poll: null, openJobs: new Set() };
+
+function intakeCard() {
+  const fileInput = h("input", { type: "file", multiple: true, hidden: true });
+  const password = h("input", { type: "text", value: "infected", spellcheck: "false", autocomplete: "off" });
+  const unpack = h("input", { type: "checkbox", checked: true });
+  const bar = h("div");
+  const progress = h("div", { class: "progress", hidden: true }, bar);
+  const results = h("div", { class: "results" });
+  const drop = h("div", { class: "drop", role: "button", tabindex: "0" },
+    h("div", { class: "glyph" }, "+"),
+    h("div", {}, h("strong", {}, "Drop a sample or a password-protected zip"), h("span", {}, "or click to choose files. Each file gets its own case: hashes, DIE, capa, FLOSS and IOC candidates run straight away.")),
+  );
+
+  const send = (files) => {
+    for (const f of files) upload(f);
+  };
+  const upload = (file) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("password", password.value);
+    form.append("unpack", unpack.checked ? "true" : "false");
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/intake");
+    xhr.setRequestHeader("X-RE-Console", "1");
+    progress.hidden = false;
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) bar.style.width = `${(100 * e.loaded) / e.total}%`; };
+    xhr.onload = () => {
+      progress.hidden = true;
+      bar.style.width = "0";
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch (_) { /* not JSON */ }
+      if (xhr.status !== 200) {
+        results.prepend(h("div", { class: "result" }, badge("failed", "rejected"), h("span", {}, file.name), h("span", { class: "muted" }, data.detail || xhr.statusText)));
+        return;
+      }
+      for (const r of data.results) {
+        results.prepend(r.duplicate_of
+          ? h("div", { class: "result" }, badge("candidate", "duplicate"), h("span", { class: "mono" }, r.name), h("span", { class: "muted" }, "already in case"), h("a", { href: caseHref(r.duplicate_of) }, r.duplicate_of),
+            r.retry_job ? [h("span", { class: "muted" }, "· its intake failed"), retryBtn(r.retry_job)] : null)
+          : h("div", { class: "result" }, badge("open", "new case"), h("span", { class: "mono" }, r.name), h("span", { class: "muted" }, "→ case"), h("a", { href: caseHref(r.case) }, r.case)));
+        if (r.job) dash.openJobs.add(r.job);
+      }
+      refreshJobs();
+    };
+    xhr.onerror = () => { progress.hidden = true; toast("Upload failed", "err"); };
+    xhr.send(form);
+  };
+
+  fileInput.addEventListener("change", () => { send(fileInput.files); fileInput.value = ""; });
+  drop.addEventListener("click", () => fileInput.click());
+  drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); } });
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); send(e.dataTransfer.files); });
+
+  return h("section", { class: "card intake" },
+    h("div", { class: "intake-main" }, drop, progress, results, fileInput),
+    h("div", { class: "intake-opts" },
+      h("h3", {}, "Intake"),
+      h("label", { class: "field" }, "Archive password", password),
+      h("label", { class: "check" }, unpack, "Unpack zip archives"),
+      h("p", { class: "dim" }, "Samples are saved to /work/samples without the execute bit, and are never sent back to the browser."),
+    ),
+  );
+}
+
+const retryBtn = (id) => h("button", { class: "btn btn-sm", type: "button", onclick: async (e) => {
+  e.stopPropagation();
+  e.target.disabled = true;
+  try { await api(`/api/jobs/${id}/retry`, { method: "POST" }); dash.openJobs.add(id); toast("Intake restarted", "ok"); refreshJobs(); } catch (err) { toast(err.message, "err"); e.target.disabled = false; }
+} }, "Retry");
+
+function jobsSection() {
+  const wrap = h("div", { class: "jobs", id: "jobs" });
+  return h("section", { id: "jobs-section", class: "stack", hidden: true }, h("h3", {}, "Intake jobs"), wrap);
+}
+
+async function refreshJobs() {
+  let list;
+  try { list = await api("/api/jobs"); } catch (_) { return; }
+  const before = dash.jobs.filter((j) => j.state === "running" || j.state === "queued").map((j) => j.id);
+  dash.jobs = list;
+  const wrap = $("#jobs");
+  if (!wrap) return;
+  const recent = list.filter((j) => j.state !== "done" || Date.now() / 1000 - (j.finished || j.created) < 3600);
+  $("#jobs-section").hidden = recent.length === 0;
+  const items = [];
+  for (const j of recent) {
+    const open = dash.openJobs.has(j.id);
+    const log = h("pre", { class: "job-log", hidden: !open });
+    if (open) api(`/api/jobs/${j.id}`).then((d) => { log.textContent = d.log || "(no output yet)"; log.scrollTop = log.scrollHeight; }).catch(() => {});
+    items.push(h("div", { class: "job" },
+      h("div", { class: "job-head", onclick: () => { if (dash.openJobs.has(j.id)) dash.openJobs.delete(j.id); else dash.openJobs.add(j.id); refreshJobs(); } },
+        j.state === "running" ? h("span", { class: "spinner" }) : null,
+        badge(j.state),
+        h("a", { href: caseHref(j.case), onclick: (e) => e.stopPropagation() }, j.case),
+        j.original !== j.case ? h("span", { class: "dim" }, `from ${j.original}`) : null,
+        h("span", { class: "spacer" }),
+        j.error ? h("span", { class: "muted" }, j.error) : null,
+        j.state === "failed" || j.state === "interrupted" ? retryBtn(j.id) : null,
+        h("span", { class: "dim" }, ago(j.finished || j.created)),
+      ),
+      log,
+    ));
+  }
+  wrap.replaceChildren(...items);
+  const active = list.some((j) => j.state === "running" || j.state === "queued");
+  const finished = before.some((id) => { const j = list.find((x) => x.id === id); return j && j.state !== "running" && j.state !== "queued"; });
+  if (finished) loadCases();
+  clearTimeout(dash.poll);
+  if (active && location.hash.replace(/^#\/?/, "") === "") dash.poll = setTimeout(refreshJobs, 2000);
+}
+
+const FILTERS = [
+  ["all", "All", () => true],
+  ["open", "Open", (c) => c.status === "open"],
+  ["malicious", "Malicious", (c) => c.verdict === "malicious"],
+  ["suspicious", "Suspicious", (c) => c.verdict === "suspicious"],
+  ["unknown", "No verdict", (c) => c.verdict === "unknown"],
+  ["closed", "Closed", (c) => c.status === "closed"],
+];
+
+function renderCaseTable() {
+  const holder = $("#case-table");
+  if (!holder) return;
+  const pred = FILTERS.find((f) => f[0] === dash.filter)[2];
+  const q = dash.query.trim().toLowerCase();
+  const rows = dash.cases.filter(pred).filter((c) => !q || c.name.toLowerCase().includes(q) || c.sha256.startsWith(q) || (c.family || "").toLowerCase().includes(q));
+  $("#filter-chips").replaceChildren(...FILTERS.map(([key, label, p]) => h("button", { class: `chip ${dash.filter === key ? "on" : ""}`, type: "button", onclick: () => { dash.filter = key; renderCaseTable(); } }, label, h("span", { class: "n" }, dash.cases.filter(p).length))));
+  if (!dash.cases.length) {
+    holder.replaceChildren(h("div", { class: "empty" }, h("strong", {}, "No cases yet"), "Drop a sample above, or run rea-case new <sample> in the guest."));
+    return;
+  }
+  if (!rows.length) {
+    holder.replaceChildren(h("div", { class: "empty" }, h("strong", {}, "Nothing matches"), "Try another filter or search."));
+    return;
+  }
+  holder.replaceChildren(h("div", { class: "table-wrap" }, h("table", {},
+    h("thead", {}, h("tr", {}, ["Sample", "Verdict", "Family", "IOCs", "Evidence", "Claims", "Last activity"].map((t) => h("th", {}, t)))),
+    h("tbody", {}, rows.map((c) => h("tr", { class: "link", onclick: () => { location.hash = caseHref(c.name); } },
+      h("td", {}, h("a", { class: "case-name", href: caseHref(c.name) }, c.name), h("div", { class: "case-type", title: c.type }, shortType(c.type) || "No metadata"), c.status === "closed" ? badge("closed") : null),
+      h("td", {}, badge(c.verdict)),
+      h("td", {}, c.family || h("span", { class: "dim" }, "—")),
+      h("td", { class: "num" }, h("span", { title: "confirmed" }, String(c.iocs.confirmed || 0)), h("span", { class: "dim" }, ` / ${c.iocs.candidate || 0} candidates`)),
+      h("td", { class: "num" }, String(c.evidence)),
+      h("td", { class: "num" }, String(c.claims)),
+      h("td", { class: "num", title: stamp(c.last_activity) }, ago(c.last_activity)),
+    ))),
+  )));
+}
+
+async function loadCases() {
+  try {
+    dash.cases = await api("/api/cases");
+    renderCaseTable();
+  } catch (e) {
+    toast(`Could not load cases: ${e.message}`, "err");
+  }
+}
+
+function renderDashboard() {
+  const search = h("input", { type: "search", placeholder: "Search name, SHA-256 or family", value: dash.query, oninput: (e) => { dash.query = e.target.value; renderCaseTable(); } });
+  search.style.width = "280px";
+  app.replaceChildren(
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Cases"), h("div", { class: "sub" }, "Every folder under /work/cases, newest activity first."))),
+    h("div", { class: "stack" },
+      intakeCard(),
+      jobsSection(),
+      h("section", { class: "card" },
+        h("div", { class: "card-head" }, h("div", { class: "chips", id: "filter-chips" }), search),
+        h("div", { class: "card-body", id: "case-table" }, h("div", { class: "loading" }, "Loading cases…")),
+      ),
+    ),
+  );
+  loadCases();
+  refreshJobs();
+}
+
+// ------------------------------------------------------------ case view
+
+const TABS = [["overview", "Overview"], ["timeline", "Timeline"], ["evidence", "Evidence"], ["files", "Files"], ["iocs", "IOCs"], ["report", "Report"]];
+let current = null;
+
+async function renderCase(name, tab) {
+  let c;
+  try {
+    c = await api(`/api/cases/${encodeURIComponent(name)}`);
+  } catch (e) {
+    app.replaceChildren(h("div", { class: "empty" }, h("strong", {}, "Case not found"), e.message, h("p", {}, h("a", { href: "#/" }, "Back to cases"))));
+    return;
+  }
+  current = c;
+  const m = c.metadata;
+  const counts = { evidence: c.evidence.length, iocs: (c.iocs.candidate || 0) + (c.iocs.confirmed || 0) };
+  const body = h("div", { id: "tab-body" });
+  app.replaceChildren(
+    h("div", { class: "crumbs" }, h("a", { href: "#/" }, "Cases"), " / ", name),
+    h("div", { class: "page-head" },
+      h("div", {},
+        h("div", { class: "case-title" }, h("h1", {}, name), badge(c.state.verdict), badge(c.state.status), c.state.family ? h("span", { class: "badge" }, c.state.family) : null),
+        h("div", { class: "hashline" }, m.sha256 ? [h("span", { class: "mono" }, m.sha256), copyBtn(m.sha256, "Copy", "SHA-256 copied")] : h("span", {}, "No metadata.json yet")),
+        m.file_type ? h("div", { class: "muted" }, m.file_type) : null,
+      ),
+    ),
+    h("nav", { class: "tabs" }, TABS.map(([key, label]) => h("button", { class: `tab ${key === tab ? "on" : ""}`, type: "button", onclick: () => { location.hash = caseHref(name, key); } }, label, counts[key] ? h("span", { class: "n" }, counts[key]) : null))),
+    body,
+  );
+  const render = { overview: tabOverview, timeline: tabTimeline, evidence: tabEvidence, files: tabFiles, iocs: tabIocs, report: tabReport }[tab] || tabOverview;
+  render(c, body);
+}
+
+function tabOverview(c, body) {
+  const m = c.metadata;
+  const verdict = h("select", {}, ["unknown", "benign", "suspicious", "malicious"].map((v) => h("option", { value: v, selected: v === c.state.verdict }, v)));
+  const status = h("select", {}, ["open", "closed"].map((v) => h("option", { value: v, selected: v === c.state.status }, v)));
+  const family = h("input", { type: "text", value: c.state.family || "", placeholder: "e.g. AgentTesla", maxlength: "100" });
+  const notes = h("textarea", { rows: "4", placeholder: "Analyst notes (kept in case.json, not in the report)" }, c.state.notes || "");
+  const save = h("button", { class: "btn btn-primary", type: "button", onclick: async () => {
+    save.disabled = true;
+    try {
+      // Only what changed here, so a verdict the agent set meanwhile isn't overwritten.
+      const changed = {};
+      for (const [k, el] of Object.entries({ verdict, status, family, notes })) if (el.value !== (c.state[k] || "")) changed[k] = el.value;
+      if (!Object.keys(changed).length) { toast("Nothing changed"); save.disabled = false; return; }
+      await api(`/api/cases/${encodeURIComponent(c.name)}`, { method: "PATCH", body: changed });
+      toast("Case updated", "ok");
+      renderCase(c.name, "overview");
+    } catch (e) { toast(e.message, "err"); save.disabled = false; }
+  } }, "Save");
+
+  const hashRows = [["MD5", m.md5], ["SHA-1", m.sha1], ["SHA-256", m.sha256], ["ssdeep", m.ssdeep], ["TLSH", m.tlsh], ["Size", m.file_size_bytes !== undefined ? `${bytes(m.file_size_bytes)} (${m.file_size_bytes} bytes)` : ""], ["Path", m.file_path]].filter((r) => r[1]);
+  const prompt = `Work on the RE-Agent case in /work/cases/${c.name} (sample ${m.file_path || c.name}). Follow the re-triage skill, record evidence in the casebook as you go, and finish with the re-report skill.`;
+
+  body.replaceChildren(h("div", { class: "grid grid-2" },
+    h("div", { class: "stack" },
+      h("section", { class: "card" },
+        h("div", { class: "card-head" }, h("h2", {}, "Progress")),
+        h("div", { class: "card-body" }, h("div", { class: "stats" },
+          h("div", { class: "stat" }, h("b", {}, c.evidence.length), h("span", {}, "evidence items")),
+          h("div", { class: "stat" }, h("b", {}, c.claims.length), h("span", {}, "verified claims")),
+          h("div", { class: "stat" }, h("b", {}, c.iocs.confirmed || 0), h("span", {}, "confirmed IOCs")),
+          h("div", { class: "stat" }, h("b", {}, c.iocs.candidate || 0), h("span", {}, "IOC candidates")),
+        )),
+      ),
+      h("section", { class: "card" },
+        h("div", { class: "card-head" }, h("h2", {}, "Sample")),
+        h("div", { class: "card-body" }, hashRows.length
+          ? h("dl", { class: "kv" }, hashRows.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v), k === "Size" || k === "Path" ? h("span") : copyBtn(v, "Copy", `${k} copied`)]))
+          : h("p", { class: "muted" }, "rea-case new hasn't run for this case yet.")),
+      ),
+      h("section", { class: "card" },
+        h("div", { class: "card-head" }, h("h2", {}, "Samples"), h("span", { class: "dim" }, `${c.children.length} derived`)),
+        h("div", { class: "card-body tree" },
+          h("div", { class: "node" }, h("span", {}, "■"), h("span", {}, m.sample_name || c.name), h("span", { class: "dim" }, shortType(m.file_type))),
+          c.children.length ? c.children.map((ch, i) => h("div", { class: "node" },
+            h("span", { class: "branch" }, i === c.children.length - 1 ? "└─" : "├─"),
+            h("a", { href: caseHref(c.name, "files"), onclick: () => { filesState.pick = ch.path; } }, ch.path.replace(/^children\//, "")),
+            h("span", { class: "dim" }, `${bytes(ch.size)} · ${shortType(ch.type)}`),
+          )) : h("p", { class: "dim" }, "No unpacked, extracted or dropped files in children/ yet."),
+        ),
+      ),
+    ),
+    h("div", { class: "stack" },
+      h("section", { class: "card" },
+        h("div", { class: "card-head" }, h("h2", {}, "Verdict")),
+        h("div", { class: "card-body" }, h("div", { class: "form-grid" },
+          h("label", {}, "Verdict", verdict),
+          h("label", {}, "Status", status),
+          h("label", { class: "full" }, "Family", family),
+          h("label", { class: "full" }, "Notes", notes),
+          h("div", { class: "full row" }, h("span", { class: "spacer" }), save),
+        )),
+      ),
+      h("section", { class: "card" },
+        h("div", { class: "card-head" }, h("h2", {}, "Key IOCs"), h("a", { href: caseHref(c.name, "iocs") }, "All IOCs")),
+        h("div", { class: "card-body" }, c.key_iocs.length
+          ? h("div", { class: "list" }, c.key_iocs.map((i) => h("div", { class: "list-item" }, h("span", { class: "badge" }, i.type), h("span", { class: "ioc-value" }, i.defanged), h("span", { class: "spacer" }), copyBtn(i.defanged, "Copy", "Copied (defanged)"))))
+          : h("p", { class: "muted" }, "No confirmed IOCs yet. Confirm candidates on the IOCs tab with evidence from the casebook.")),
+      ),
+      h("section", { class: "card" },
+        h("div", { class: "card-head" }, h("h2", {}, "Hand to the agent")),
+        h("div", { class: "card-body stack" },
+          h("div", { class: "prompt-box" }, prompt),
+          h("div", { class: "row" }, copyBtn(prompt, "Copy prompt", "Prompt copied"), h("a", { class: "btn btn-sm", href: $("#hermes-link").href, target: "_blank", rel: "noopener noreferrer" }, "Open Hermes")),
+        ),
+      ),
+    ),
+  ));
+}
+
+async function tabTimeline(c, body) {
+  body.replaceChildren(h("div", { class: "loading" }, "Loading timeline…"));
+  const events = await api(`/api/cases/${encodeURIComponent(c.name)}/timeline`);
+  if (!events.length) { body.replaceChildren(h("div", { class: "empty" }, "Nothing has happened in this case yet.")); return; }
+  body.replaceChildren(h("section", { class: "card" }, h("div", { class: "card-body" }, h("div", { class: "timeline" }, events.map((e) => h("div", { class: `event ${e.kind}` },
+    h("div", { class: "when", title: stamp(e.t) }, `${stamp(e.t)} · ${ago(e.t)}`),
+    h("div", { class: "what" }, e.path ? h("a", { href: caseHref(c.name, "files"), onclick: () => { filesState.pick = e.path; } }, e.text) : e.text),
+    e.detail ? h("div", { class: "detail" }, e.detail) : null,
+  ))))));
+}
+
+function tabEvidence(c, body) {
+  const jump = (id) => {
+    const row = document.getElementById(`ev-${id}`);
+    if (!row) { toast(`Evidence ${id} is not in the casebook`, "err"); return; }
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.classList.remove("flash");
+    void row.offsetWidth;
+    row.classList.add("flash");
+  };
+  body.replaceChildren(h("div", { class: "stack" },
+    h("section", { class: "card" },
+      h("div", { class: "card-head" }, h("h2", {}, `Verified claims (${c.claims.length})`)),
+      h("div", { class: "card-body" }, c.claims.length
+        ? c.claims.map((cl) => h("div", { class: "claim" }, h("div", {}, cl.claim), h("div", { class: "row" }, (cl.evidence_ids || []).map((id) => h("button", { class: "eid", type: "button", onclick: () => jump(id) }, id)), h("span", { class: "dim" }, stamp(cl.timestamp)))))
+        : h("p", { class: "muted" }, "No claims yet. The agent verifies each finding with re-casebook verify, citing evidence ids.")),
+    ),
+    h("section", { class: "card" },
+      h("div", { class: "card-head" }, h("h2", {}, `Evidence (${c.evidence.length})`)),
+      h("div", { class: "card-body" }, c.evidence.length
+        ? h("div", { class: "table-wrap" }, h("table", {},
+          h("thead", {}, h("tr", {}, ["Id", "Category", "Content", "Offset", "Recorded", "Cited by"].map((t) => h("th", {}, t)))),
+          h("tbody", {}, c.evidence.map((e) => h("tr", { id: `ev-${e.id}` },
+            h("td", {}, h("span", { class: "eid" }, e.id)),
+            h("td", {}, e.category),
+            h("td", { class: "content-cell" }, String(e.content ?? "")),
+            h("td", { class: "mono" }, e.offset ?? ""),
+            h("td", { class: "num", title: stamp(e.timestamp) }, ago(e.timestamp)),
+            h("td", { class: "num" }, e.cited_by.length ? `${e.cited_by.length} claim${e.cited_by.length > 1 ? "s" : ""}` : h("span", { class: "dim" }, "none")),
+          ))),
+        ))
+        : h("p", { class: "muted" }, "No evidence recorded yet.")),
+    ),
+  ));
+}
+
+const filesState = { pick: null };
+
+async function tabFiles(c, body) {
+  const list = await api(`/api/cases/${encodeURIComponent(c.name)}/files`);
+  const viewerHead = h("div", { class: "card-head" }, h("h2", {}, "Select a file"));
+  const viewer = h("pre", { class: "viewer" }, "");
+  const wrap = h("label", { class: "check" }, h("input", { type: "checkbox", onchange: (e) => viewer.classList.toggle("wrap", e.target.checked) }), "Wrap lines");
+  const items = list.map((f) => h("button", { class: "file-item", type: "button", dataset: { path: f.path }, onclick: () => show(f.path, 0) }, h("span", { class: "p", title: f.path }, f.path), h("span", { class: "size" }, bytes(f.size))));
+  const show = async (path, offset) => {
+    for (const it of items) it.classList.toggle("on", it.dataset.path === path);
+    viewer.textContent = "Loading…";
+    try {
+      const d = await api(`/api/cases/${encodeURIComponent(c.name)}/file?path=${encodeURIComponent(path)}&offset=${offset}`);
+      viewer.textContent = d.content || "(empty file)";
+      const extra = [];
+      if (d.kind === "hex") {
+        extra.push(h("span", { class: "dim" }, `hex · ${bytes(d.size)} · from 0x${d.offset.toString(16)}`));
+        if (d.offset > 0) extra.push(h("button", { class: "btn btn-sm", type: "button", onclick: () => show(path, Math.max(0, d.offset - 65536)) }, "Previous 64 KB"));
+        if (d.next !== null) extra.push(h("button", { class: "btn btn-sm", type: "button", onclick: () => show(path, d.next) }, "Next 64 KB"));
+      } else {
+        extra.push(h("span", { class: "dim" }, `${bytes(d.size)}${d.truncated ? " · first 1 MB shown" : ""}`), wrap);
+      }
+      viewerHead.replaceChildren(h("h2", { class: "mono" }, path), h("div", { class: "row" }, extra));
+      viewer.scrollTop = 0;
+    } catch (e) { viewer.textContent = e.message; }
+  };
+  body.replaceChildren(h("div", { class: "files" },
+    h("section", { class: "card file-list" }, items.length ? items : h("p", { class: "muted" }, "This case has no files."), list.length >= 5000 ? h("p", { class: "hint" }, "Only the first 5000 files are listed.") : null, h("p", { class: "hint" }, "Files under children/ and anything binary open as a hex dump. Nothing here runs or renders file contents.")),
+    h("section", { class: "card" }, viewerHead, viewer),
+  ));
+  const pick = filesState.pick && list.some((f) => f.path === filesState.pick) ? filesState.pick : (list.find((f) => f.path === "investigation_plan.md") || list[0] || {}).path;
+  filesState.pick = null;
+  if (pick) show(pick, 0);
+}
+
+const iocState = { filter: "candidate", query: "" };
+
+async function tabIocs(c, body) {
+  const caseApi = `/api/cases/${encodeURIComponent(c.name)}`;
+  let list = await api(`${caseApi}/iocs`);
+  const reload = async () => { list = await api(`${caseApi}/iocs`); draw(); };
+  const run = async (btn, fn) => {
+    if (btn) btn.disabled = true;
+    try { const r = await fn(); if (r && r.output) toast(r.output, "ok"); await reload(); } catch (e) { toast(e.message, "err"); }
+    if (btn) btn.disabled = false;
+  };
+  const extract = h("button", { class: "btn btn-primary", type: "button", onclick: () => run(extract, () => api(`${caseApi}/iocs/extract`, { method: "POST" })) }, "Extract candidates");
+  const addType = h("select", {}, ["url", "domain", "ipv4", "email", "md5", "sha1", "sha256", "registry"].map((t) => h("option", { value: t }, t)));
+  const addValue = h("input", { type: "text", placeholder: "Value (refanged automatically)", spellcheck: "false" });
+  addValue.style.width = "280px";
+  const add = h("button", { class: "btn", type: "button", onclick: () => run(add, async () => { const r = await api(`${caseApi}/iocs`, { method: "POST", body: { type: addType.value, value: addValue.value } }); addValue.value = ""; return r; }) }, "Add");
+  const search = h("input", { type: "search", placeholder: "Filter values", value: iocState.query, oninput: (e) => { iocState.query = e.target.value; draw(); } });
+  const chips = h("div", { class: "chips" });
+  const table = h("div");
+  const setStatus = (i, status, evidence, note) => api(`${caseApi}/iocs/status`, { method: "POST", body: { key: i.key, status, evidence: evidence || [], note: note || null } });
+
+  const confirmBox = (i, cell) => {
+    if (cell.querySelector(".confirm-box")) { cell.querySelector(".confirm-box").remove(); return; }
+    const picks = c.evidence.map((e) => h("label", { title: `${e.category}: ${String(e.content ?? "").slice(0, 200)}` }, h("input", { type: "checkbox", value: e.id }), e.id));
+    const note = h("input", { type: "text", placeholder: "Note (optional)" });
+    const go = h("button", { class: "btn btn-sm btn-primary", type: "button", onclick: () => {
+      const ids = picks.map((p) => p.querySelector("input")).filter((x) => x.checked).map((x) => x.value);
+      if (!ids.length) { toast("Pick at least one evidence id that backs this IOC", "err"); return; }
+      run(go, () => setStatus(i, "confirmed", ids, note.value));
+    } }, "Confirm");
+    cell.append(h("div", { class: "confirm-box" },
+      c.evidence.length ? [h("div", { class: "dim" }, "Evidence that backs it:"), h("div", { class: "ev-pick" }, picks), note, h("div", { class: "row" }, go)]
+        : h("div", { class: "muted" }, "The casebook has no evidence yet. Record some with re-casebook record first."),
+    ));
+  };
+
+  const draw = () => {
+    const by = (s) => list.filter((i) => s === "all" || i.status === s);
+    chips.replaceChildren(...[["candidate", "Candidates"], ["confirmed", "Confirmed"], ["benign", "Benign"], ["all", "All"]].map(([k, label]) => h("button", { class: `chip ${iocState.filter === k ? "on" : ""}`, type: "button", onclick: () => { iocState.filter = k; draw(); } }, label, h("span", { class: "n" }, by(k).length))));
+    const q = iocState.query.trim().toLowerCase();
+    const rows = by(iocState.filter).filter((i) => !q || i.value.toLowerCase().includes(q) || i.defanged.toLowerCase().includes(q));
+    if (!list.length) { table.replaceChildren(h("div", { class: "empty" }, h("strong", {}, "No IOCs yet"), "Extract candidates from the case output, or add one by hand.")); return; }
+    if (!rows.length) { table.replaceChildren(h("div", { class: "empty" }, "No IOCs in this view.")); return; }
+    table.replaceChildren(h("div", { class: "table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, ["Type", "Value (defanged)", "Seen in", "Status", ""].map((t) => h("th", {}, t)))),
+      h("tbody", {}, rows.map((i) => {
+        const actions = h("td", {});
+        actions.append(h("div", { class: "row" },
+          copyBtn(i.defanged, "Copy", "Copied (defanged)"),
+          i.status !== "confirmed" ? h("button", { class: "btn btn-sm", type: "button", onclick: () => confirmBox(i, actions) }, "Confirm…") : null,
+          i.status !== "benign" ? h("button", { class: "btn btn-sm", type: "button", onclick: (e) => run(e.target, () => setStatus(i, "benign")) }, "Benign") : null,
+          i.status !== "candidate" ? h("button", { class: "btn btn-sm btn-ghost", type: "button", onclick: (e) => run(e.target, () => setStatus(i, "candidate")) }, "Reset") : null,
+        ));
+        return h("tr", {},
+          h("td", {}, h("span", { class: "badge" }, i.type)),
+          h("td", {}, h("div", { class: "ioc-value" }, i.defanged), i.note ? h("div", { class: "dim" }, i.note) : null, i.evidence_ids.length ? h("div", { class: "row" }, i.evidence_ids.map((id) => h("span", { class: "eid" }, id))) : null),
+          h("td", { class: "sources" }, (i.sources || []).slice(0, 4).join(", "), (i.sources || []).length > 4 ? ` +${i.sources.length - 4}` : ""),
+          h("td", {}, badge(i.status)),
+          actions,
+        );
+      })),
+    )));
+  };
+  draw();
+  body.replaceChildren(h("section", { class: "card" },
+    h("div", { class: "card-head" }, h("div", { class: "row" }, extract, h("span", { class: "dim" }, "Candidates stay out of exports until confirmed.")), h("div", { class: "row" }, addType, addValue, add)),
+    h("div", { class: "card-head" }, chips, search),
+    h("div", { class: "card-body" }, table),
+  ));
+}
+
+function renderMarkdown(text) {
+  // A small, safe subset: headings, lists, tables, code blocks, bold and inline code.
+  const out = h("div", { class: "md" });
+  const inline = (s) => s.split(/(`[^`]+`|\*\*[^*]+\*\*)/).filter(Boolean).map((part) =>
+    part.startsWith("`") && part.endsWith("`") && part.length > 1 ? h("code", {}, part.slice(1, -1))
+      : part.startsWith("**") && part.endsWith("**") && part.length > 3 ? h("strong", {}, part.slice(2, -2)) : part);
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith("```")) {
+      const buf = [];
+      for (i++; i < lines.length && !lines[i].startsWith("```"); i++) buf.push(lines[i]);
+      out.append(h("pre", {}, buf.join("\n")));
+    } else if (/^#{1,3} /.test(line)) {
+      const level = line.match(/^#+/)[0].length;
+      out.append(h(`h${level}`, {}, inline(line.slice(level + 1))));
+    } else if (/^\s*[-*] /.test(line)) {
+      const ul = h("ul");
+      for (; i < lines.length && /^\s*[-*] /.test(lines[i]); i++) ul.append(h("li", {}, inline(lines[i].replace(/^\s*[-*] (\[[ x]\] )?/, (m, box) => (box ? (box.includes("x") ? "☑ " : "☐ ") : "")))));
+      i--;
+      out.append(ul);
+    } else if (line.startsWith("|")) {
+      const rows = [];
+      for (; i < lines.length && lines[i].startsWith("|"); i++) rows.push(lines[i]);
+      i--;
+      const cells = (r) => r.replace(/^\||\|$/g, "").split("|").map((s) => s.trim());
+      const body = rows.filter((r) => !/^\|[\s:|-]+\|$/.test(r));
+      out.append(h("div", { class: "table-wrap" }, h("table", {},
+        h("thead", {}, h("tr", {}, cells(body[0] || "").map((t) => h("th", {}, inline(t))))),
+        h("tbody", {}, body.slice(1).map((r) => h("tr", {}, cells(r).map((t) => h("td", {}, inline(t)))))),
+      )));
+    } else if (line.trim()) {
+      out.append(h("p", {}, inline(line)));
+    }
+  }
+  return out;
+}
+
+async function tabReport(c, body) {
+  const caseApi = `/api/cases/${encodeURIComponent(c.name)}`;
+  const withCandidates = h("input", { type: "checkbox" });
+  const preview = h("div", { class: "card-body" });
+  const downloads = h("div", { class: "row" });
+  const drawDownloads = (artifacts) => downloads.replaceChildren(...[["FINAL_REPORT.md", "Report (.md)"], ["iocs.csv", "IOCs (.csv)"], ["iocs.stix.json", "STIX 2.1 bundle"]].map(([f, label]) => artifacts.includes(f)
+    ? h("a", { class: "btn btn-sm", href: `${caseApi}/download/${f}`, download: `${c.name}-${f}` }, label)
+    : h("button", { class: "btn btn-sm", type: "button", disabled: true, title: "Build the report first" }, label)));
+  const loadPreview = async (artifacts) => {
+    if (!artifacts.includes("FINAL_REPORT.md")) {
+      preview.replaceChildren(h("div", { class: "empty" }, h("strong", {}, "No report yet"), "Build it to combine report_notes.md, the investigation plan, the verified claims and the confirmed IOCs."));
+      return;
+    }
+    const d = await api(`${caseApi}/file?path=FINAL_REPORT.md`);
+    preview.replaceChildren(renderMarkdown(d.content));
+  };
+  const build = h("button", { class: "btn btn-primary", type: "button", onclick: async () => {
+    build.disabled = true;
+    try {
+      const r = await api(`${caseApi}/export`, { method: "POST", body: { include_candidates: withCandidates.checked } });
+      toast(r.output, "ok");
+      drawDownloads(r.artifacts);
+      await loadPreview(r.artifacts);
+    } catch (e) { toast(e.message, "err"); }
+    build.disabled = false;
+  } }, c.artifacts.includes("FINAL_REPORT.md") ? "Rebuild report" : "Build report");
+  drawDownloads(c.artifacts);
+  body.replaceChildren(h("div", { class: "stack" },
+    h("section", { class: "card" },
+      h("div", { class: "card-head" }, h("div", { class: "row" }, build, h("label", { class: "check" }, withCandidates, "Include IOC candidates in the CSV and STIX files")), downloads),
+      h("div", { class: "card-body" }, h("p", { class: "dim" }, c.has_notes
+        ? "The narrative comes from report_notes.md, which the agent writes with the re-report skill. Building never overwrites it."
+        : "There is no report_notes.md yet, so the report will hold only the plan, the verified claims and the IOCs. Ask the agent to run the re-report skill for the narrative.")),
+    ),
+    h("section", { class: "card" }, preview),
+  ));
+  loadPreview(c.artifacts);
+}
+
+// ------------------------------------------------------------ router
+
+function route() {
+  clearTimeout(dash.poll);
+  const parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
+  document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", parts[0] !== "case"));
+  if (parts[0] === "case" && parts[1]) renderCase(parts[1], parts[2] || "overview").catch((e) => toast(e.message, "err"));
+  else renderDashboard();
+  window.scrollTo(0, 0);
+}
+
+window.addEventListener("hashchange", route);
+loadStatus();
+setInterval(loadStatus, 30000);
+route();
+RECONSOLE
+chmod -R a+rX,go-w /opt/re-agent/console
+install -d -o analyst -g analyst -m 750 /work/.console /work/.console/tmp
+cat <<'EOF' >/etc/systemd/system/re-console.service
+[Unit]
+Description=RE-Agent case console
+After=network-online.target re-firewall.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=analyst
+Group=analyst
+UMask=0027
+WorkingDirectory=/work
+EnvironmentFile=/etc/default/re-agent
+# Uploads spool here rather than in /tmp, so samples stay under /work.
+Environment=TMPDIR=/work/.console/tmp
+ExecStart=/opt/re-console-venv/bin/uvicorn --app-dir /opt/re-agent/console app:app --host 127.0.0.1 --port 9120 --no-server-header
+NoNewPrivileges=yes
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+if [[ "${DEPLOY_TARGET:-}" == "vm" ]]; then
+  systemctl enable -q re-console
+else
+  systemctl enable -q --now re-console
+fi
+msg_ok "Installed case console"
 
 # In cloud-init mode vm-app.func turns on root password logins in sshd_config
 # after this script runs. sshd keeps the first value it reads, and sshd_config
