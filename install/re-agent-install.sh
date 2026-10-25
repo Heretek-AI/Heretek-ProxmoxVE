@@ -424,6 +424,7 @@ cat <<'FIREWALL' >/usr/local/sbin/re-firewall
 # Egress quarantine for RE-Agent. Root only: the analyst user has no sudo, so
 # nothing running as analyst (Hermes, tools, samples) can lift it.
 set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 STATE=/etc/re-agent/firewall.conf
 ALLOW=/etc/re-agent/egress-allow
@@ -502,7 +503,7 @@ flush_chain() {
 }
 
 apply_rules() {
-  local proxy="$1" port="$2" uid
+  local proxy="$1" port="$2" boot="${3:-}" uid
   uid=$(id -u analyst)
   flush_chain iptables
   flush_chain ip6tables
@@ -542,8 +543,15 @@ apply_rules() {
   if [[ "$proxy" == "local" ]]; then
     url="http://127.0.0.1:${LOCAL_PORT}"
     write_proxy_confs
-    systemctl enable -q --now squid
-    systemctl reload squid 2>/dev/null || systemctl restart squid
+    if [[ -n "$boot" ]]; then
+      # At boot this runs before network-pre.target and Squid starts after
+      # network.target, so waiting on a Squid job here would deadlock the boot.
+      systemctl enable -q squid
+      systemctl --no-block start squid
+    else
+      systemctl enable -q --now squid
+      systemctl reload squid 2>/dev/null || systemctl restart squid
+    fi
   fi
   printf 'HTTPS_PROXY=%s\nHTTP_PROXY=%s\nhttps_proxy=%s\nhttp_proxy=%s\nNO_PROXY=127.0.0.1,localhost\nno_proxy=127.0.0.1,localhost\n' "$url" "$url" "$url" "$url" >"$PROXY_ENV"
 }
@@ -610,7 +618,7 @@ apply)
   # shellcheck disable=SC1090
   source "$STATE"
   if [[ "${MODE:-open}" == "isolate" ]]; then
-    apply_rules "$PROXY_IP" "$PROXY_PORT"
+    apply_rules "$PROXY_IP" "$PROXY_PORT" boot
   fi
   ;;
 status)
@@ -648,6 +656,8 @@ cat <<'CONFIG' >/usr/local/sbin/re-agent-config
 # their hosts through the egress quarantine. Keys are read from the terminal,
 # never from the command line, and stored in /home/analyst/.hermes/.env.
 set -euo pipefail
+# It calls re-firewall, which is in /usr/local/sbin; pct exec and cron don't put that on PATH.
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 ENV_FILE=/home/analyst/.hermes/.env
 
