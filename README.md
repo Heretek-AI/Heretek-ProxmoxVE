@@ -40,7 +40,7 @@ and fetch their install scripts from Heretek-AI/ProxmoxVE.
 | [OpenClaw](https://openclaw.ai) | Personal AI assistant across WhatsApp, Telegram, Slack, Discord and more | 2 CPU, 4 GB RAM |
 | [PentAGI](https://github.com/vxcontrol/pentagi) | AI-powered autonomous penetration testing | 4 CPU, 8 GB RAM |
 | [RAGFlow](https://ragflow.io/) | RAG engine with deep document understanding | 4 CPU, 16 GB RAM |
-| [RE-Agent](https://github.com/morluto/rea) | Malware reverse-engineering workstation: Hermes Agent with REA, Ghidra, BINNY, capa, FLOSS, YARA and Detect It Easy, behind an egress allowlist. LXC for static analysis, VM (`vm/re-agent-vm.sh`) for running samples | 4 CPU, 8 GB RAM, 40 GB |
+| [RE-Agent](https://github.com/morluto/rea) | Malware reverse-engineering workstation: Hermes Agent with REA, Ghidra, BINNY, capa, FLOSS, YARA and Detect It Easy, with an egress allowlist you turn on with `re-firewall isolate local` before handling samples. LXC for static analysis, VM (`vm/re-agent-vm.sh`) for running samples | 4 CPU, 8 GB RAM, 40 GB |
 | [SkillServer](https://github.com/mudler/skillserver) | MCP/REST server and web UI holding a skills database for AI agents (in development) | 2 CPU, 2 GB RAM |
 | [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) | Stable Diffusion web UI with built-in ComfyUI | 8 CPU, 16 GB RAM |
 | [Unsloth Studio](https://unsloth.ai/) | Browser GUI for fine-tuning LLMs without code | 4 CPU, 16 GB RAM |
