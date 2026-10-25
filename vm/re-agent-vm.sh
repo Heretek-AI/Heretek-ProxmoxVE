@@ -139,6 +139,7 @@ echo -e "${INFO}${YW} Add a custom provider or a memory embeddings API, and let 
 echo -e "${TAB}${BGN}re-agent-config provider add <name> <base_url>${CL}"
 echo -e "${INFO}${YW} The Hermes dashboard listens on localhost only. Reach it through an SSH tunnel:${CL}"
 echo -e "${TAB}${BGN}ssh -L 9119:127.0.0.1:9119 root@${VM_IP:-<IP>}${CL}"
+echo -e "${INFO}${YW} SSH accepts keys only. Add yours to /root/.ssh/authorized_keys from the VM console (or cloud-init).${CL}"
 echo -e "${INFO}${YW} Before running samples, quarantine egress and take a baseline snapshot:${CL}"
 echo -e "${TAB}${BGN}re-firewall isolate local${CL}"
 echo -e "${TAB}${BGN}qm snapshot ${VMID} baseline-clean${CL}"

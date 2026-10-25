@@ -4,6 +4,12 @@
 # License: MIT | https://github.com/Heretek-AI/ProxmoxVE/raw/main/LICENSE
 # Source: https://github.com/morluto/rea | https://github.com/openbin-ai/binny | https://hermes-agent.nousresearch.com/
 
+# The VM build runs this script under virt-customize, whose /dev has no stdin
+# or fd links, and the core helpers source through them.
+[[ -e /dev/fd ]] || ln -s /proc/self/fd /dev/fd
+[[ -e /dev/stdin ]] || ln -s /proc/self/fd/0 /dev/stdin
+[[ -e /dev/stdout ]] || ln -s /proc/self/fd/1 /dev/stdout
+[[ -e /dev/stderr ]] || ln -s /proc/self/fd/2 /dev/stderr
 source /dev/stdin <<<"$FUNCTIONS_FILE_PATH"
 color
 verb_ip6
@@ -31,7 +37,6 @@ $STD apt install -y \
   iptables \
   squid \
   bubblewrap \
-  radare2 \
   upx-ucl \
   yara \
   tshark \
@@ -45,11 +50,18 @@ fetch_and_deploy_gh_release "ghidra" "NationalSecurityAgency/ghidra" "prebuild" 
 chmod +x /opt/ghidra/support/analyzeHeadless /opt/ghidra/ghidraRun
 fetch_and_deploy_gh_release "binny" "openbin-ai/binny-releases" "prebuild" "latest" "/opt/binny" "binny-linux-amd64.tar.gz"
 ln -sf /opt/binny/binny /usr/local/bin/binny
+# Debian 13 no longer packages radare2.
+fetch_and_deploy_gh_release "radare2" "radareorg/radare2" "binary" "latest" "" "radare2_*_amd64.deb"
 
-if fetch_and_deploy_gh_release "die" "horsicq/DIE-engine" "prebuild" "latest" "/opt/die" "die_lin64_portable_*.tar.gz"; then
-  DIEC_BIN=$(find /opt/die -maxdepth 2 -type f -name 'diec*' | head -n1)
-  [[ -n "$DIEC_BIN" ]] && ln -sf "$DIEC_BIN" /usr/local/bin/diec
-else
+# Detect It Easy publishes a .deb per distribution release (die_<ver>_Debian_13_amd64.deb);
+# apt pulls in the Qt 5 libraries it needs.
+# The helper falls back to any .deb when the pattern misses, so check that a
+# package for this distro exists before calling it.
+DIE_DISTRO=$(. /etc/os-release && echo "${ID^}_${VERSION_ID}")
+if ! curl -fsSL https://api.github.com/repos/horsicq/DIE-engine/releases/latest |
+  jq -e --arg s "_${DIE_DISTRO}_amd64.deb" 'any(.assets[].name; endswith($s))' >/dev/null ||
+  ! fetch_and_deploy_gh_release "die" "horsicq/DIE-engine" "binary" "latest" "" "die_*_${DIE_DISTRO}_amd64.deb" ||
+  ! diec --version >/dev/null 2>&1; then
   msg_warn "Detect It Easy could not be installed; the rest of the toolchain is unaffected"
 fi
 
@@ -57,8 +69,34 @@ msg_info "Installing Python triage tools"
 python3 -m venv /opt/re-tools-venv
 $STD /opt/re-tools-venv/bin/pip install --upgrade pip wheel
 $STD /opt/re-tools-venv/bin/pip install flare-capa flare-floss yara-python pefile pyelftools r2pipe
-ln -sf /opt/re-tools-venv/bin/capa /usr/local/bin/capa
 ln -sf /opt/re-tools-venv/bin/floss /usr/local/bin/floss
+# The flare-capa wheel ships without rules or library signatures. Fetch the ones
+# tagged for the installed capa (the CT update runs this again).
+cat <<'EOF' >/usr/local/sbin/re-capa-rules
+#!/usr/bin/env bash
+set -euo pipefail
+ver=$(/opt/re-tools-venv/bin/python -c 'import capa.version; print(capa.version.__version__)')
+# Build the new tree next to /opt/capa and swap it in only once it is complete.
+tmp=$(mktemp -d /opt/.capa.XXXXXX)
+trap 'rm -rf "$tmp" /opt/capa.old' EXIT
+curl -fsSL "https://github.com/mandiant/capa-rules/archive/refs/tags/v${ver}.tar.gz" -o "$tmp/rules.tar.gz"
+curl -fsSL "https://github.com/mandiant/capa/archive/refs/tags/v${ver}.tar.gz" -o "$tmp/capa.tar.gz"
+mkdir -p "$tmp/new/rules" "$tmp/src"
+tar -xzf "$tmp/rules.tar.gz" -C "$tmp/new/rules" --strip-components=1
+tar -xzf "$tmp/capa.tar.gz" -C "$tmp/src" --strip-components=1 --wildcards '*/sigs/*'
+mv "$tmp/src/sigs" "$tmp/new/sigs"
+echo "$ver" >"$tmp/new/version"
+rm -rf /opt/capa.old
+[[ -d /opt/capa ]] && mv /opt/capa /opt/capa.old
+mv "$tmp/new" /opt/capa
+EOF
+chmod 755 /usr/local/sbin/re-capa-rules
+$STD /usr/local/sbin/re-capa-rules
+cat <<'EOF' >/usr/local/bin/capa
+#!/bin/sh
+exec /opt/re-tools-venv/bin/capa -r /opt/capa/rules -s /opt/capa/sigs "$@"
+EOF
+chmod 755 /usr/local/bin/capa
 msg_ok "Installed Python triage tools"
 
 msg_info "Creating analyst user"
@@ -80,6 +118,12 @@ cat <<'EOF' >/etc/profile.d/re-agent.sh
 export GHIDRA_INSTALL_DIR=/opt/ghidra
 export GHIDRA_HEADLESS_MAXMEM=4G
 export PATH="$PATH:/opt/ghidra/support"
+# Under quarantine re-firewall writes the proxy here; login shells need it too.
+if [ -s /etc/default/re-agent-proxy ]; then
+  set -a
+  . /etc/default/re-agent-proxy
+  set +a
+fi
 EOF
 touch /etc/default/re-agent-proxy
 msg_ok "Created analyst user"
@@ -96,7 +140,7 @@ $STD setsid --wait bash -c '
   set -a; source /etc/default/re-agent; set +a
   export npm_config_yes=true
   bash /tmp/hermes-install.sh --skip-setup --hermes-home /home/analyst/.hermes --dir /home/analyst/.hermes/hermes-agent
-'
+' </dev/null
 rm -f /tmp/hermes-install.sh
 API_SERVER_KEY=$(random_password 32)
 cat <<EOF >/home/analyst/.hermes/.env
@@ -118,20 +162,22 @@ msg_info "Installing Hermes plugins"
 # holographic is a local SQLite memory whose search by meaning can be pointed at
 # an embeddings API later (re-agent-config embeddings).
 for plugin in rea bubblewrap holographic; do
-  if ! su - analyst -c "set -a; source /etc/default/re-agent; set +a; hermes plugins install ${plugin} --enable --yes-deps" >>/var/log/re-agent-plugins.log 2>&1; then
+  if ! su - analyst -c "set -a; source /etc/default/re-agent; set +a; hermes plugins install ${plugin} --enable --yes-deps" </dev/null >>/var/log/re-agent-plugins.log 2>&1; then
     msg_warn "Hermes plugin '${plugin}' did not install (see /var/log/re-agent-plugins.log)"
   fi
 done
 su - analyst -c 'set -a; source /etc/default/re-agent; set +a; hermes config set memory.provider holographic' >>/var/log/re-agent-plugins.log 2>&1 || true
-# bwrap needs user namespaces, which an unprivileged LXC usually can't nest.
-if [[ "${DEPLOY_TARGET:-}" == "vm" ]]; then
+# bwrap needs user namespaces. An LXC has them only with nesting on (the
+# default), so test there; the VM build can't test, but the booted VM has them.
+if [[ "${DEPLOY_TARGET:-}" == "vm" ]] ||
+  su - analyst -c 'bwrap --unshare-all --ro-bind / / --dev /dev --proc /proc true' </dev/null >/dev/null 2>&1; then
   su - analyst -c 'set -a; source /etc/default/re-agent; set +a; hermes config set terminal.backend bubblewrap' >>/var/log/re-agent-plugins.log 2>&1 || true
 fi
 # The rea plugin starts its pinned rea-agents through npx. Fetch it now, while
 # the npm registry is reachable: under quarantine it is not.
 REA_SPEC=$(grep -rhoE 'rea-agents@[0-9][0-9.]*' /home/analyst/.hermes/plugins/rea 2>/dev/null | head -n1 || true)
 if [[ -n "$REA_SPEC" ]]; then
-  su - analyst -c "npx -y ${REA_SPEC} --version" >>/var/log/re-agent-plugins.log 2>&1 || true
+  su - analyst -c "npx -y ${REA_SPEC} --version" </dev/null >>/var/log/re-agent-plugins.log 2>&1 || true
 fi
 chown -R analyst:analyst /home/analyst
 msg_ok "Installed Hermes plugins"
@@ -158,7 +204,12 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-systemctl enable -q --now hermes-dashboard
+# The VM build has no running systemd: enable there, and the unit starts at first boot.
+if [[ "${DEPLOY_TARGET:-}" == "vm" ]]; then
+  systemctl enable -q hermes-dashboard
+else
+  systemctl enable -q --now hermes-dashboard
+fi
 msg_ok "Created Hermes dashboard service"
 
 msg_info "Creating setup helper"
@@ -264,6 +315,7 @@ usage() {
   echo "  new <file>       Create a case directory and run hashes, CAPA and FLOSS"
   echo "  status <sample>  Show the case metadata and verified claims"
   echo "  export <sample>  Write FINAL_REPORT.md from the investigation plan"
+  echo "  list             List the cases under /work/cases"
   echo "  clean            Remove leftover lock files under /work/cases"
   exit 1
 }
@@ -339,6 +391,9 @@ export)
   } >"$CASE_DIR/FINAL_REPORT.md"
   echo "Report written to $CASE_DIR/FINAL_REPORT.md"
   ;;
+list)
+  find /work/cases -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
+  ;;
 clean)
   find /work/cases -type f \( -name "*.lock" -o -name "*.lock~" \) -delete
   echo "Removed temporary lock files under /work/cases."
@@ -361,7 +416,8 @@ api.openai.com
 openrouter.ai
 generativelanguage.googleapis.com
 EOF
-systemctl disable -q --now squid
+systemctl disable -q squid
+[[ "${DEPLOY_TARGET:-}" == "vm" ]] || systemctl stop squid
 
 cat <<'FIREWALL' >/usr/local/sbin/re-firewall
 #!/usr/bin/env bash
@@ -431,6 +487,7 @@ write_proxy_confs() {
     echo "http_access allow localhost CONNECT re_agent_allowed"
     echo "http_access deny all"
     echo "cache deny all"
+    echo "shutdown_lifetime 1 seconds"
     echo "access_log stdio:/var/log/squid/access.log"
     echo "coredump_dir /var/spool/squid"
   } >/etc/squid/squid.conf
@@ -488,7 +545,7 @@ apply_rules() {
     systemctl enable -q --now squid
     systemctl reload squid 2>/dev/null || systemctl restart squid
   fi
-  printf 'HTTPS_PROXY=%s\nHTTP_PROXY=%s\nNO_PROXY=127.0.0.1,localhost\n' "$url" "$url" >"$PROXY_ENV"
+  printf 'HTTPS_PROXY=%s\nHTTP_PROXY=%s\nhttps_proxy=%s\nhttp_proxy=%s\nNO_PROXY=127.0.0.1,localhost\nno_proxy=127.0.0.1,localhost\n' "$url" "$url" "$url" "$url" >"$PROXY_ENV"
 }
 
 restart_hermes() {
@@ -693,6 +750,18 @@ mkdir -p /opt/re-agent
 # Writes the host proxy template and the local Squid config from the allowlist.
 /usr/local/sbin/re-firewall allow api.anthropic.com >/dev/null
 msg_ok "Deployed egress quarantine"
+
+# In cloud-init mode vm-app.func turns on root password logins in sshd_config
+# after this script runs. sshd keeps the first value it reads, and sshd_config
+# includes sshd_config.d first, so this keeps SSH key-only.
+if [[ "${DEPLOY_TARGET:-}" == "vm" ]]; then
+  mkdir -p /etc/ssh/sshd_config.d
+  cat <<'EOF' >/etc/ssh/sshd_config.d/00-re-agent.conf
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+EOF
+fi
 
 motd_ssh
 customize
