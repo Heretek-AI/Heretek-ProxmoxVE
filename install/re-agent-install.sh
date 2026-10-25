@@ -264,7 +264,7 @@ usage() {
   echo "  new <file>       Create a case directory and run hashes, CAPA and FLOSS"
   echo "  status <sample>  Show the case metadata and verified claims"
   echo "  export <sample>  Write FINAL_REPORT.md from the investigation plan"
-  echo "  clean            Remove Ghidra lock files under /work"
+  echo "  clean            Remove leftover lock files under /work/cases"
   exit 1
 }
 
@@ -340,8 +340,8 @@ export)
   echo "Report written to $CASE_DIR/FINAL_REPORT.md"
   ;;
 clean)
-  find /work -name "*.lock" -delete
-  echo "Removed lock files."
+  find /work/cases -type f \( -name "*.lock" -o -name "*.lock~" \) -delete
+  echo "Removed temporary lock files under /work/cases."
   ;;
 *)
   usage
