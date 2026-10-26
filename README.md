@@ -33,6 +33,7 @@ and fetch their install scripts from Heretek-AI/ProxmoxVE.
 | --- | --- | --- |
 | [Agregarr](https://github.com/agregarr/agregarr) | Keeps Plex Home and Recommended fresh with collections from Trakt, IMDb, TMDB, Letterboxd and more | 2 CPU, 4 GB RAM |
 | [Drop](https://github.com/Drop-OSS/drop) | Open-source game distribution platform, similar to Steam or GameVault | 2 CPU, 4 GB RAM |
+| [Gufo](https://github.com/gufo-org/gufo) | Local inference engine tuned for AMD Strix Halo (gfx1151), with an OpenAI-compatible API | 8 CPU, 32 GB RAM, 80 GB, Strix Halo GPU |
 | [Kali Linux](https://www.kali.org/) | Debian-based distribution for security testing | 2 CPU, 4 GB RAM |
 | [llama.cpp Server](https://github.com/ggml-org/llama.cpp) | LLM inference server with an OpenAI-compatible API, Vulkan backend | 4 CPU, 8 GB RAM |
 | [LocalRecall](https://github.com/mudler/LocalRecall) | REST API for knowledge bases stored in vector databases | 2 CPU, 2 GB RAM |
