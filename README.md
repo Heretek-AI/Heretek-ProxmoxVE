@@ -36,6 +36,7 @@ and fetch their install scripts from Heretek-AI/ProxmoxVE.
 | [Gufo](https://github.com/gufo-org/gufo) | Local inference engine tuned for AMD Strix Halo (gfx1151), with an OpenAI-compatible API | 8 CPU, 32 GB RAM, 80 GB, Strix Halo GPU |
 | [GSQHalo.cpp](https://github.com/Aristo94/GSQHalo.cpp) | llama.cpp fork for GSQ-RCO Qwen3.8-Flash-Next on AMD Strix Halo (gfx1151), built with its own ROCm 7.14.1 | 8 CPU, 64 GB RAM, 120 GB, Strix Halo GPU |
 | [Kali Linux](https://www.kali.org/) | Debian-based distribution for security testing | 2 CPU, 4 GB RAM |
+| [Kyojin](https://github.com/Yamz-Labs/kyojin) | ExLlamaV3-based engine for AMD Strix Halo (gfx1151) serving Yamz Labs' EXL3 Qwen3.8-Flash-Next, GLM-5.3-Flash and MiMo-V2.6-Flash packs, with an OpenAI-compatible API | 8 CPU, 64 GB RAM, 160 GB, Strix Halo GPU |
 | [llama.cpp Server](https://github.com/ggml-org/llama.cpp) | LLM inference server with an OpenAI-compatible API, Vulkan backend | 4 CPU, 8 GB RAM |
 | [LocalRecall](https://github.com/mudler/LocalRecall) | REST API for knowledge bases stored in vector databases | 2 CPU, 2 GB RAM |
 | [MCPHub](https://github.com/samanhappy/mcphub) | One dashboard and API for managing and routing MCP servers | 2 CPU, 2 GB RAM |
